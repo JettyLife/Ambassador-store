@@ -218,6 +218,13 @@ fieldset.ship legend{padding:0;margin-bottom:8px}
 #sizeRows{display:flex;flex-direction:column;gap:18px}
 @media(max-width:760px){.sizesbtn{order:3}}
 @media (prefers-reduced-motion:reduce){.szpick.nudge{animation:none}}
+fieldset.method{border:0;padding:0;margin:4px 0 0;display:flex;flex-direction:column;gap:8px}
+fieldset.method legend{padding:0;margin-bottom:8px}
+.mopt{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:var(--r);padding:11px 12px;cursor:pointer;background:var(--bg)}
+.mopt.on{border-color:var(--accent);background:var(--accent-soft)}
+.mopt input{margin-top:3px;accent-color:var(--accent)}
+.mopt b{display:block;font-size:14px;font-weight:600}
+.mopt small{display:block;color:var(--muted);font-size:12.5px;margin-top:2px}
 </style></head><body>
 <header class="top">
   <div class="wrap bar1">
@@ -517,13 +524,22 @@ const SHIP_FIELDS = [
   ["name","Full name","name",true], ["line1","Street address","address-line1",true], ["line2","Apt, suite (optional)","address-line2",false],
   ["city","City","address-level2",true], ["state","State","address-level1",true], ["zip","ZIP","postal-code",true], ["phone","Phone (optional)","tel",false]
 ];
+const METHODS = {
+  "pickup-dc":   { label: "Pickup - Jetty Distribution", addr: "700 S Main St, West Creek, NJ 08092" },
+  "pickup-flag": { label: "Pickup - Jetty Flagship Store", addr: "176 E Bay Ave 1st Floor, Manahawkin, NJ 08050" },
+  "delivery":    { label: "Delivery", addr: "" },
+};
+function fulfillText(){
+  const m = METHODS[S.method]; if (!m) return "";
+  return S.method === "delivery" ? "Delivery\n" + shipText() : m.label + "\n" + m.addr;
+}
 function shipText(){ const s=S.ship; return [s.name, s.line1, s.line2, [s.city, s.state].filter(Boolean).join(", ") + " " + (s.zip||""), s.phone].filter(x=>x&&x.trim()).join("\n"); }
 function orderText(id){
   const t = totals(), a = S.me.a, rows = [];
   cartGroups().forEach(g => g.lines.forEach(l => rows.push(`${l.q} x ${g.p.s} ${l.size} | ${g.p.d} - ${g.p.c} | UPC ${l.upc}`)));
   return [ id ? `Order: ${id}` : null, `Ambassador: ${S.me.n}`, `Store: ${CONFIG.season} Ambassador Store`, `Units: ${t.units}`,
     `Retail total: ${money(t.value)} (allowance ${money(a)}${t.value>a?`, over by ${money(t.value-a)}`:""})`,
-    S.notes ? `Notes: ${S.notes}` : null, ``, `Ship to:`, shipText(), ``, ...rows ].filter(x => x!==null).join("\n");
+    S.notes ? `Notes: ${S.notes}` : null, ``, `Fulfillment:`, fulfillText(), ``, ...rows ].filter(x => x!==null).join("\n");
 }
 function newOrderId(){
   const d = new Date(), p = n => String(n).padStart(2,"0");
@@ -556,7 +572,11 @@ function renderCart(){
       <dl><dt>Name</dt><dd>${esc(S.me.n)}</dd><dt>Items</dt><dd>${t.units} units, ${groups.length} styles</dd>
       <dt>Retail value</dt><dd>${money(t.value)} of ${money(a)}</dd></dl>
       ${m.over?`<div class="note">This order is ${money(t.value-a)} over your allowance. You can still place it. We'll review it before it's approved.</div>`:""}
-      <fieldset class="ship"><legend class="fl">Ship to</legend>
+      <fieldset class="method"><legend class="fl">How do you want to get your order?</legend>
+      ${Object.entries(METHODS).map(([k,m]) => `<label class="mopt${S.method===k?" on":""}"><input type="radio" name="method" id="m-${k}" value="${k}"${S.method===k?" checked":""}>
+        <span><b>${esc(m.label)}</b>${m.addr?`<small>${esc(m.addr)}</small>`:`<small>Shipped to an address you enter</small>`}</span></label>`).join("")}
+      </fieldset>
+      <fieldset class="ship" id="shipBox"${S.method==="delivery"?"":" hidden"}><legend class="fl">Delivery address</legend>
       ${SHIP_FIELDS.map(([k,l,ac,req]) => `<label class="f f-${k}"><span>${l}</span><input id="ship-${k}" name="${k}" autocomplete="shipping ${ac}" ${req?"required":""} value="${esc(S.ship[k]||"")}"${k==="state"?' maxlength="20"':""}${k==="zip"?' inputmode="numeric" maxlength="10"':""}${k==="phone"?' type="tel"':""}></label>`).join("")}
       </fieldset>
       <label class="fl" for="notes">Notes (optional)</label>
@@ -591,6 +611,13 @@ function renderCart(){
     <button type="button" class="primary" id="toCheckout">Checkout</button>`;
 }
 $("drawer").addEventListener("change", e => {
+  if (e.target.name === "method") {
+    S.method = e.target.value;
+    document.querySelectorAll(".mopt").forEach(l => l.classList.toggle("on", l.querySelector("input").checked));
+    $("shipBox").hidden = S.method !== "delivery";
+    $("formErr").hidden = true;
+    return;
+  }
   const sel = e.target.closest("select.lsz"); if (!sel) return;
   const from = sel.dataset.u, to = sel.value; if (from === to) return;
   const q = S.cart[from] || 0; setQty(from, 0); setQty(to, (S.cart[to]||0) + q);
@@ -601,8 +628,9 @@ $("drawer").addEventListener("input", e => {
   else if (e.target.id && e.target.id.startsWith("ship-")) S.ship[e.target.name] = e.target.value;
 });
 async function placeOrder(btn){
-  const missing = SHIP_FIELDS.filter(([k,,,req]) => req && !(S.ship[k]||"").trim()).map(([,l]) => l.toLowerCase());
   const err = $("formErr");
+  if (!METHODS[S.method]) { err.hidden=false; err.textContent = "Choose pickup or delivery."; return; }
+  const missing = S.method !== "delivery" ? [] : SHIP_FIELDS.filter(([k,,,req]) => req && !(S.ship[k]||"").trim()).map(([,l]) => l.toLowerCase());
   if (missing.length) { err.hidden=false; err.textContent = "Please add your " + missing.join(", ") + "."; return; }
   err.hidden = true;
   const t = totals(), id = newOrderId();
@@ -613,7 +641,8 @@ async function placeOrder(btn){
     ambassador: S.me.n, ambassadorId: S.me.id, email: S.me.e, allowance: S.me.a,
     retailTotal: Math.round(t.value*100)/100, units: t.units, overAllowance: t.value > S.me.a,
     revisionOf: (store.get(K("placed"))||{}).id || "", notes: S.notes || "",
-    shipTo: { ...S.ship }, shipToText: shipText(),
+    fulfillment: METHODS[S.method].label, fulfillmentCode: S.method,
+    shipTo: S.method === "delivery" ? { ...S.ship } : null, shipToText: fulfillText(),
     lines: cartGroups().flatMap(g => g.lines.map(l => ({ upc:l.upc, style:g.p.s, size:l.size, color:g.p.a, colorName:g.p.c, description:g.p.d, qty:l.q, retail:g.p.p }))),
     orderText: orderText(id)
   };
@@ -621,7 +650,7 @@ async function placeOrder(btn){
   try {
     await fetch(CONFIG.orderEndpoint, { method:"POST", mode:"no-cors", headers:{ "Content-Type":"text/plain;charset=UTF-8" }, body: JSON.stringify(payload) });
     store.set(K("placed"), { id, at: payload.submittedAt, units: t.units, value: t.value });
-    S.cart = {}; store.set(K("cart"), {}); S.notes = "";
+    S.cart = {}; store.set(K("cart"), {}); S.notes = ""; S.method = "";
     step = "done"; renderCart(); renderHeader();
   } catch (e) {
     btn.disabled = false; btn.textContent = "Place order";
