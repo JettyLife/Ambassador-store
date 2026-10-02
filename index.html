@@ -190,6 +190,34 @@ fieldset.ship legend{padding:0;margin-bottom:8px}
   .sizes{grid-template-columns:repeat(auto-fill,minmax(38px,1fr))}
   nav.dept button{padding:6px 10px;font-size:17px}
 }
+.sizesbtn{border:1px solid var(--line);background:var(--surface);border-radius:var(--r);padding:8px 12px;font-size:13px;font-weight:500}
+.ph.tap{display:block;width:100%;border:0;padding:0;cursor:pointer;text-align:inherit;color:inherit;font:inherit}
+.ph .plus{position:absolute;right:10px;bottom:10px;width:36px;height:36px;border-radius:50%;background:var(--surface);color:var(--ink);display:grid;place-items:center;font-size:22px;line-height:1;box-shadow:0 2px 8px rgba(0,0,0,.18);transition:transform .15s}
+.ph.tap:hover .plus{transform:scale(1.08);background:var(--accent);color:var(--accent-ink)}
+.szpick{display:flex;flex-wrap:wrap;gap:5px;margin-top:auto}
+.szb{min-width:38px;padding:6px 8px;border:1px solid var(--line);background:var(--bg);border-radius:4px;font-size:12.5px;font-weight:600;font-variant-numeric:tabular-nums}
+.szb[aria-pressed="true"]{border-color:var(--ink);background:var(--ink);color:var(--bg)}
+.szpick.nudge{animation:nudge .5s}
+@keyframes nudge{20%,60%{transform:translateX(-4px)}40%,80%{transform:translateX(4px)}}
+.szlbl{font-size:12.5px;color:var(--muted);margin-top:auto}
+.addbtn{border:0;background:var(--accent);color:var(--accent-ink);border-radius:var(--r);padding:10px 12px;font-weight:600}
+.cf:empty{display:none}
+.lmain{min-width:0}
+.lrow{display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap}
+.lsz{border:1px solid var(--line);border-radius:4px;background:var(--bg);padding:5px 6px;font-size:13px}
+.step{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:4px;overflow:hidden}
+.step button{border:0;background:var(--bg);width:28px;height:28px;font-size:16px;line-height:1}
+.step span{min-width:26px;text-align:center;font-variant-numeric:tabular-nums;font-size:13px;font-weight:600}
+.lrow .link{margin-top:0}
+.vh{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.srow{display:flex;flex-direction:column;gap:8px}
+.srow .fl small{display:block;text-transform:none;letter-spacing:0;font-size:12px;margin-top:2px}
+.pills{display:flex;flex-wrap:wrap;gap:6px}
+.pill{min-width:44px;padding:8px 10px;border:1px solid var(--line);background:var(--surface);border-radius:999px;font-weight:600;font-size:14px}
+.pill[aria-pressed="true"]{border-color:var(--accent);background:var(--accent);color:var(--accent-ink)}
+#sizeRows{display:flex;flex-direction:column;gap:18px}
+@media(max-width:760px){.sizesbtn{order:3}}
+@media (prefers-reduced-motion:reduce){.szpick.nudge{animation:none}}
 </style></head><body>
 <header class="top">
   <div class="wrap bar1">
@@ -203,6 +231,7 @@ fieldset.ship legend{padding:0;margin-bottom:8px}
       <span class="av" id="whoAv">·</span>
       <span class="nm"><small>Ordering as</small><span id="whoNm">Loading…</span></span>
     </div>
+    <button type="button" class="sizesbtn" id="sizesBtn">My sizes</button>
     <button type="button" class="cartbtn" id="cartBtn">Cart <span class="ct" id="cartCt">0</span></button>
   </div>
   <div class="wrap allow">
@@ -235,6 +264,16 @@ fieldset.ship legend{padding:0;margin-bottom:8px}
     <h2 id="gateH">Use your personal link</h2>
     <p id="gateP">This store opens from the personal link in your invitation email. Open that email and tap the link to start your order.</p>
     <p class="hint" id="gateC"></p>
+  </div>
+</div>
+<div class="modal" id="sizes" hidden>
+  <div class="pick">
+    <div class="brand"><b>Jetty</b><span>Your sizes</span></div>
+    <h2 id="sizesH">What sizes do you wear?</h2>
+    <p>We'll pick these sizes for you when you tap a product. You can still change the size on any item.</p>
+    <div id="sizeRows"></div>
+    <button type="button" class="primary" id="sizesSave">Save sizes</button>
+    <button type="button" class="ghost" id="sizesSkip">Skip for now</button>
   </div>
 </div>
 <div class="toast" id="toast" hidden></div>
@@ -309,7 +348,7 @@ function renderHeader(){
   $("seasonLbl").textContent = $("gateSeason").textContent = lbl;
   document.title = "Jetty " + lbl;
   if (!S.me) return;
-  $("whoNm").textContent = S.me.n;
+  $("whoNm").textContent = S.me.n + (S.me.t ? " (test)" : "");
   $("whoAv").textContent = initials(S.me.n);
   const t = totals(), a = S.me.a, m = meterHTML(t, a);
   $("cartCt").textContent = t.units;
@@ -343,13 +382,79 @@ $("q").addEventListener("input", e => { S.q = e.target.value.trim().toLowerCase(
 /* Photos: drop img/<STYLE>-1.jpg (main) and img/<STYLE>-2.jpg (hover) into the repo */
 const imgPath = (s, n) => "img/" + encodeURIComponent(s) + "-" + n + ".jpg";
 function photo(p){
-  return `<div class="none"><b>${esc(p.d.split(" ")[0])}</b><small>Photo coming soon</small></div>
+  return `<span class="none"><b>${esc(p.d.split(" ")[0])}</b><small>Photo coming soon</small></span>
     <img class="a" src="${imgPath(p.s,1)}" alt="${esc(p.d)} in ${esc(p.c)}" loading="lazy" onload="this.parentNode.classList.add('hasA')" onerror="this.remove()">
     <img class="b" src="${imgPath(p.s,2)}" alt="" loading="lazy" onload="this.parentNode.classList.add('two')" onerror="this.remove()">`;
 }
+/* ===== Sizes: each person saves their usual sizes; tapping a card adds that size ===== */
+const LETTERS = ["XS","S","M","L","XL","XXL","3XL"];
+const isNum = s => /^\d+$/.test(s);
+function fitOf(p){
+  const sz = p.z.map(z => z[0]);
+  if (sz.length === 1 && sz[0] === "OS") return "os";
+  if (sz.every(isNum)) return "waist";
+  if (p.sub === "Walkshorts" || p.sub === "Boardshorts") return "short";
+  return "top";
+}
+const FITS = {
+  top:   { label: "Tops", note: "Tees, shirts, knits, hoodies", sizes: LETTERS },
+  short: { label: "Shorts (S–XXL)", note: "Volley, lounge and linen shorts", sizes: ["S","M","L","XL","XXL"] },
+  waist: { label: "Waist", note: "Boardshorts and walkshorts", sizes: ["26","28","30","31","32","33","34","36","38","40"] },
+};
+const prefs = () => store.get(K("sizes")) || {};
+function defaultSize(p){
+  const f = fitOf(p), sz = p.z.map(z => z[0]);
+  if (f === "os") return sz[0];
+  const want = prefs()[f];
+  return sz.includes(want) ? want : "";
+}
+const pickedSize = {};   // per style, the size chip currently selected on its card
+function sizeFor(p){ return pickedSize[p.s] ?? defaultSize(p); }
+function upcOf(p, size){ const z = p.z.find(z => z[0] === size); return z ? z[1] : null; }
+
+function openSizes(first){
+  const cur = prefs();
+  $("sizesH").textContent = first ? `Hi ${S.me.f}! What sizes do you wear?` : "Your sizes";
+  $("sizeRows").innerHTML = Object.entries(FITS).map(([k,f]) => `<div class="srow"><div class="fl">${f.label}<small>${f.note}</small></div>
+    <div class="pills" data-fit="${k}">${f.sizes.map(s => `<button type="button" class="pill" data-v="${s}" aria-pressed="${cur[k]===s}">${s}</button>`).join("")}</div></div>`).join("");
+  $("sizes").hidden = false;
+}
+$("sizeRows").addEventListener("click", e => {
+  const b = e.target.closest(".pill"); if(!b) return;
+  const row = b.parentNode, on = b.getAttribute("aria-pressed") !== "true";
+  [...row.children].forEach(x => x.setAttribute("aria-pressed", "false"));
+  b.setAttribute("aria-pressed", String(on));
+});
+$("sizesSave").addEventListener("click", () => {
+  const out = {};
+  document.querySelectorAll("#sizeRows .pills").forEach(r => { const b = r.querySelector('[aria-pressed="true"]'); if (b) out[r.dataset.fit] = b.dataset.v; });
+  store.set(K("sizes"), out); store.set(K("sizesAsked"), true);
+  for (const k in pickedSize) delete pickedSize[k];
+  $("sizes").hidden = true; renderGrid(); toast("Sizes saved");
+});
+$("sizesSkip").addEventListener("click", () => { store.set(K("sizesAsked"), true); $("sizes").hidden = true; });
+$("sizesBtn").addEventListener("click", () => S.me && openSizes(false));
+
+function inCartSummary(p){
+  const parts = p.z.filter(([,u]) => S.cart[u]).map(([s,u]) => `${s} × ${S.cart[u]}`);
+  return parts.join(", ");
+}
 function cardFoot(p){
-  let u=0; p.z.forEach(([,upc]) => u += S.cart[upc]||0);
-  return u ? `<b>${u} in cart</b> · ${money(u*p.p)} retail` : "Enter a quantity under each size";
+  const sum = inCartSummary(p);
+  return sum ? `<b>In cart:</b> ${esc(sum)}` : "";
+}
+function cardHTML(p){
+  const has = p.z.some(([,u]) => S.cart[u]), sel = sizeFor(p), one = p.z.length === 1;
+  return `<article class="card${has?" has":""}" data-s="${esc(p.s)}">
+      <button type="button" class="ph tap" data-add aria-label="Add ${esc(p.d)} ${esc(p.c)} to cart">${photo(p)}${p.season!==CONFIG.season?`<span class="tag">${esc(p.season)}</span>`:""}<span class="plus" aria-hidden="true">+</span></button>
+      <div class="cb">
+        <div class="ttl"><h3>${esc(p.d)}</h3><div class="price">${money(p.p)}<small>Retail</small></div></div>
+        <div class="meta"><span>${esc(p.c)}</span><span class="code">${esc(p.s)}</span></div>
+        ${one ? `<div class="szlbl">One size</div>` : `<div class="szpick" role="group" aria-label="Size">${p.z.map(([s]) =>
+          `<button type="button" class="szb" data-sz="${esc(s)}" aria-pressed="${s===sel}">${esc(s)}</button>`).join("")}</div>`}
+        <button type="button" class="addbtn" data-add>${sel ? `Add ${one ? "" : esc(sel) + " "}to cart` : "Pick a size"}</button>
+        <div class="cf">${cardFoot(p)}</div>
+      </div></article>`;
 }
 function renderGrid(){
   const nm = S.dept === "mens" ? "Mens" : "Accessories";
@@ -357,20 +462,15 @@ function renderGrid(){
   const items = deptItems().filter(p => (S.sub==="All" || p.sub===S.sub) &&
     (!S.q || (p.d+" "+p.c+" "+p.s+" "+p.sub).toLowerCase().includes(S.q)));
   $("countLbl").textContent = items.length + (items.length===1 ? " style" : " styles");
-  $("grid").innerHTML = items.length ? items.map(p => {
-    const has = p.z.some(([,u]) => S.cart[u]);
-    return `<article class="card${has?" has":""}" data-s="${esc(p.s)}">
-      <div class="ph">${photo(p)}${p.season!==CONFIG.season?`<span class="tag">${esc(p.season)}</span>`:""}</div>
-      <div class="cb">
-        <div class="ttl"><h3>${esc(p.d)}</h3><div class="price">${money(p.p)}<small>Retail</small></div></div>
-        <div class="meta"><span>${esc(p.c)}</span><span class="code">${esc(p.s)}</span></div>
-        <div class="sizes">${p.z.map(([size,upc]) => {
-          const v = S.cart[upc]||"";
-          return `<div class="sz"><label for="q${upc}">${esc(size)}</label><input id="q${upc}" data-u="${upc}" type="number" inputmode="numeric" min="0" max="99" step="1" value="${v}" class="${v?"on":""}" aria-label="${esc(p.d)} ${esc(p.c)} size ${esc(size)} quantity"></div>`;
-        }).join("")}</div>
-        <div class="cf">${cardFoot(p)}</div>
-      </div></article>`;
-  }).join("") : `<div class="empty">No styles match “${esc(S.q)}”.</div>`;
+  $("grid").innerHTML = items.length ? items.map(cardHTML).join("") : `<div class="empty">No styles match “${esc(S.q)}”.</div>`;
+}
+function refreshCard(p){
+  const old = document.querySelector(`.card[data-s="${CSS.escape(p.s)}"]`);
+  if (!old) return;
+  const keepHover = old.querySelector(".ph").className;
+  old.outerHTML = cardHTML(p);
+  const nu = document.querySelector(`.card[data-s="${CSS.escape(p.s)}"] .ph`);
+  if (nu) nu.className = keepHover;
 }
 function setQty(upc, q){
   q = Math.max(0, Math.min(99, parseInt(q,10) || 0));
@@ -378,17 +478,20 @@ function setQty(upc, q){
   store.set(K("cart"), S.cart);
   return q;
 }
-$("grid").addEventListener("input", e => {
-  const inp = e.target.closest("input[data-u]"); if(!inp || !S.me) return;
-  const q = setQty(inp.dataset.u, inp.value);
-  inp.classList.toggle("on", !!q);
-  const card = inp.closest(".card"), p = BY_UPC[inp.dataset.u].p;
-  card.classList.toggle("has", p.z.some(([,u]) => S.cart[u]));
-  card.querySelector(".cf").innerHTML = cardFoot(p);
-  renderHeader();
+$("grid").addEventListener("click", e => {
+  if (!S.me) return;
+  const card = e.target.closest(".card"); if (!card) return;
+  const p = PRODUCTS.find(x => x.s === card.dataset.s);
+  const szb = e.target.closest(".szb");
+  if (szb) { pickedSize[p.s] = szb.dataset.sz; refreshCard(p); return; }
+  if (!e.target.closest("[data-add]")) return;
+  const size = sizeFor(p);
+  if (!size) { card.querySelector(".szpick")?.classList.add("nudge"); toast("Pick a size first"); setTimeout(()=>card.querySelector(".szpick")?.classList.remove("nudge"), 600); return; }
+  const upc = upcOf(p, size);
+  setQty(upc, (S.cart[upc]||0) + 1);
+  refreshCard(p); renderHeader();
+  toast(`Added ${p.d}${p.z.length>1?`, size ${size}`:""}`);
 });
-$("grid").addEventListener("change", e => { const inp=e.target.closest("input[data-u]"); if(inp) inp.value = S.cart[inp.dataset.u] || ""; });
-$("grid").addEventListener("click", e => { const ph=e.target.closest(".ph.two"); if(ph && matchMedia("(hover:none)").matches) ph.classList.toggle("flip"); });
 
 /* ===== Cart drawer: cart -> checkout -> done ===== */
 let step = "cart";
@@ -470,11 +573,15 @@ function renderCart(){
     return;
   }
   body.innerHTML = groups.map(g => {
-    const u = g.lines.reduce((s,l)=>s+l.q,0);
+    const u = g.lines.reduce((s,l)=>s+l.q,0), one = g.p.z.length === 1;
     return `<div class="line"><div class="th"><img src="${imgPath(g.p.s,1)}" alt="" onerror="this.remove()"></div>
-      <div><h4>${esc(g.p.d)}</h4><div class="sub">${esc(g.p.c)} · ${money(g.p.p)} each</div>
-        <div class="qs">${g.lines.map(l=>`<span>${esc(l.size)} × ${l.q}</span>`).join("")}</div>
-        <button type="button" class="link" data-rm="${esc(g.p.s)}">Remove</button></div>
+      <div class="lmain"><h4>${esc(g.p.d)}</h4><div class="sub">${esc(g.p.c)} · ${money(g.p.p)} each</div>
+        ${g.lines.map(l => `<div class="lrow">
+          ${one ? `<span class="sub">One size</span>` : `<label class="vh" for="sz-${l.upc}">Size</label><select id="sz-${l.upc}" class="lsz" data-u="${l.upc}">${g.p.z.map(([s,u2]) =>
+            `<option value="${u2}"${u2===l.upc?" selected":""}>${esc(s)}</option>`).join("")}</select>`}
+          <div class="step"><button type="button" data-dec="${l.upc}" aria-label="One fewer">−</button><span>${l.q}</span><button type="button" data-inc="${l.upc}" aria-label="One more">+</button></div>
+          <button type="button" class="link" data-rmu="${l.upc}">Remove</button></div>`).join("")}
+      </div>
       <div class="rt">${money(u*g.p.p)}<div class="sub">${u} ${u===1?"unit":"units"}</div></div></div>`;
   }).join("");
   foot.innerHTML = `<div class="tot"><span>${t.units} units · retail value</span><b>${money(t.value)}</b></div>
@@ -483,6 +590,12 @@ function renderCart(){
     ${m.over?`<div class="note">You're over your allowance. You can still place this order. We'll review it before it's approved.</div>`:""}
     <button type="button" class="primary" id="toCheckout">Checkout</button>`;
 }
+$("drawer").addEventListener("change", e => {
+  const sel = e.target.closest("select.lsz"); if (!sel) return;
+  const from = sel.dataset.u, to = sel.value; if (from === to) return;
+  const q = S.cart[from] || 0; setQty(from, 0); setQty(to, (S.cart[to]||0) + q);
+  renderCart(); renderHeader();
+});
 $("drawer").addEventListener("input", e => {
   if (e.target.id === "notes") S.notes = e.target.value;
   else if (e.target.id && e.target.id.startsWith("ship-")) S.ship[e.target.name] = e.target.value;
@@ -517,7 +630,10 @@ async function placeOrder(btn){
 }
 $("drawer").addEventListener("click", e => {
   const id = e.target.id;
-  if (e.target.dataset.rm) { const p = PRODUCTS.find(x=>x.s===e.target.dataset.rm); p.z.forEach(([,u])=>setQty(u,0)); renderCart(); renderHeader(); return; }
+  const ds = e.target.dataset;
+  if (ds.rmu) { setQty(ds.rmu, 0); renderCart(); renderHeader(); return; }
+  if (ds.inc) { setQty(ds.inc, (S.cart[ds.inc]||0) + 1); renderCart(); renderHeader(); return; }
+  if (ds.dec) { setQty(ds.dec, (S.cart[ds.dec]||0) - 1); renderCart(); renderHeader(); return; }
   if (id==="toCheckout"){ step="checkout"; renderCart(); }
   else if (id==="backCart"){ step="cart"; renderCart(); }
   else if (id==="closeCart2"){ closeCart(); }
@@ -538,6 +654,7 @@ let tt; function toast(m){ const t=$("toast"); t.textContent=m; t.hidden=false; 
   if (!S.me) { $("whoNm").textContent = "—"; showGate(); return; }
   S.cart = store.get(K("cart")) || {};
   renderHeader(); renderChips(); renderGrid();
+  if (!store.get(K("sizesAsked"))) openSizes(true);
 })();
 window.addEventListener("hashchange", () => location.reload());
 </script>
