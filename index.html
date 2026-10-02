@@ -1,0 +1,545 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<title>Jetty Ambassador Store</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Figtree:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>[hidden]{display:none!important}body{margin:0}img{max-width:100%}
+
+/* Layout: sticky shop header + allowance strip, card grid of styles, slide-in cart drawer */
+:root{
+  --bg:#f3f6f7; --surface:#ffffff; --ink:#122633; --muted:#5d6f7a; --line:#d9e2e6;
+  --accent:#1f6f78; --accent-ink:#ffffff; --accent-soft:#e1efef; --tile:#e7edef;
+  --warn:#b4521e; --warn-soft:#fbe9df; --ok:#2d7a4b;
+  --f-display:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
+  --f-body:"Figtree",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+  --r:6px;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0d1820; --surface:#14222c; --ink:#e6eef1; --muted:#93a6b0; --line:#253742;
+  --accent:#5fb6bd; --accent-ink:#0b1a20; --accent-soft:#183339; --tile:#1b2c37;
+  --warn:#f0925c; --warn-soft:#3a2216; --ok:#6cc690; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0d1820; --surface:#14222c; --ink:#e6eef1; --muted:#93a6b0; --line:#253742;
+  --accent:#5fb6bd; --accent-ink:#0b1a20; --accent-soft:#183339; --tile:#1b2c37;
+  --warn:#f0925c; --warn-soft:#3a2216; --ok:#6cc690; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.45}
+button,input,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.wrap{max-width:1280px;margin:0 auto;padding-inline:20px}
+@media(max-width:520px){.wrap{padding-inline:16px}}
+
+/* header */
+header.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:var(--surface);border-bottom:1px solid var(--line)}
+.bar1{display:flex;align-items:center;gap:16px;padding-block:14px}
+.brand{display:flex;flex-direction:column;line-height:1}
+.brand b{font-family:var(--f-display);font-weight:700;font-size:28px;letter-spacing:.06em;text-transform:uppercase}
+.brand span{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-top:3px}
+nav.dept{display:flex;gap:4px;margin-left:12px}
+nav.dept button{border:0;background:none;padding:8px 14px;border-radius:var(--r);font-family:var(--f-display);font-size:19px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;color:var(--muted)}
+nav.dept button[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent)}
+.spacer{flex:1}
+.who{display:flex;align-items:center;gap:8px;border:1px solid var(--line);background:var(--bg);border-radius:999px;padding:6px 12px 6px 6px;font-size:13px;max-width:240px}
+.who .av{width:26px;height:26px;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;font-weight:600;font-size:12px;flex:none}
+.who .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.who small{color:var(--muted);display:block;font-size:11px;line-height:1}
+.cartbtn{position:relative;border:0;background:var(--ink);color:var(--bg);border-radius:var(--r);padding:9px 14px;font-weight:600;display:flex;gap:8px;align-items:center}
+.cartbtn .ct{background:var(--accent);color:var(--accent-ink);border-radius:999px;min-width:22px;padding:0 6px;font-size:12px;line-height:22px;text-align:center;font-variant-numeric:tabular-nums}
+
+/* allowance strip */
+.allow{border-top:1px solid var(--line);padding-block:10px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.allow .lbl{font-size:12px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);white-space:nowrap}
+.meter{flex:1;min-width:180px;height:10px;border-radius:999px;background:var(--tile);overflow:hidden;position:relative}
+.meter i{position:absolute;inset:0 auto 0 0;width:0;background:var(--accent);border-radius:999px;transition:width .35s ease,background .2s}
+.meter.over i{background:var(--warn)}
+.nums{font-variant-numeric:tabular-nums;font-size:14px;white-space:nowrap}
+.nums b{font-weight:600}
+.nums .left{color:var(--muted);margin-left:6px}
+.nums .left.over{color:var(--warn);font-weight:600}
+
+@media(max-width:760px){
+  .bar1{flex-wrap:wrap;gap:10px}
+  nav.dept{order:5;margin-left:0;width:100%}
+  .who{max-width:170px}
+}
+
+/* toolbar */
+.tools{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding-block:22px 6px}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:6px 13px;font-size:13px;color:var(--muted)}
+.chip[aria-pressed="true"]{border-color:var(--ink);background:var(--ink);color:var(--bg)}
+.search{margin-left:auto;display:flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--surface);border-radius:var(--r);padding:0 10px;min-width:0}
+.search input{border:0;background:none;padding:8px 2px;width:200px;max-width:50vw;outline:none}
+.headline{display:flex;align-items:baseline;gap:12px;padding-block:10px 14px}
+.headline h1{font-family:var(--f-display);font-weight:700;font-size:34px;letter-spacing:.02em;text-transform:uppercase;margin:0;text-wrap:balance}
+.headline span{color:var(--muted);font-size:14px}
+
+/* grid + cards */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:18px;padding-block:0 60px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;display:flex;flex-direction:column;transition:border-color .15s}
+.card.has{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.ph{position:relative;aspect-ratio:4/5;max-width:100%;background:var(--tile);overflow:hidden}
+.ph img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transition:opacity .25s ease}
+.ph img.b{opacity:0}
+.ph.two:hover img.b,.ph.two.flip img.b{opacity:1}
+.ph.two:hover img.a,.ph.two.flip img.a{opacity:0}
+.ph .none{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:var(--muted);text-align:center;padding:16px}
+.ph .none b{font-family:var(--f-display);font-size:26px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--ink);opacity:.55;line-height:1}
+.ph .none small{font-size:11px;letter-spacing:.12em;text-transform:uppercase}
+.ph .tag{position:absolute;left:10px;top:10px;background:var(--surface);color:var(--ink);font-size:11px;padding:3px 8px;border-radius:999px;letter-spacing:.04em}
+.ph .dots{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);display:flex;gap:4px}
+.ph .dots i{width:6px;height:6px;border-radius:50%;background:var(--surface);opacity:.7}
+.cb{padding:14px 14px 16px;display:flex;flex-direction:column;gap:10px;flex:1}
+.ttl{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+.ttl h3{margin:0;font-family:var(--f-display);font-weight:600;font-size:21px;line-height:1.05;letter-spacing:.01em;text-wrap:balance}
+.price{font-variant-numeric:tabular-nums;font-weight:600;white-space:nowrap;text-align:right}
+.price small{display:block;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:500}
+.meta{display:flex;justify-content:space-between;gap:8px;font-size:13px;color:var(--muted);flex-wrap:wrap}
+.meta .code{font-family:var(--f-mono);font-size:11.5px;color:var(--ink);opacity:.8}
+.sizes{display:grid;grid-template-columns:repeat(auto-fill,minmax(44px,1fr));gap:6px;margin-top:auto}
+.sz{display:flex;flex-direction:column;align-items:center;gap:3px}
+.sz label{font-size:11px;font-weight:600;letter-spacing:.04em;color:var(--muted)}
+.sz input{width:100%;text-align:center;padding:7px 2px;border:1px solid var(--line);border-radius:4px;background:var(--bg);font-variant-numeric:tabular-nums;font-weight:600;-moz-appearance:textfield}
+.sz input::-webkit-outer-spin-button,.sz input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.sz input.on{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
+.cf{font-size:12.5px;color:var(--muted);min-height:18px;font-variant-numeric:tabular-nums}
+.cf b{color:var(--accent)}
+.empty{grid-column:1/-1;padding:60px 0;text-align:center;color:var(--muted)}
+
+/* drawer */
+.scrim{position:fixed;inset:0;background:rgba(8,18,24,.45);z-index:40}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(460px,100%);background:var(--surface);z-index:41;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);box-shadow:-8px 0 30px rgba(0,0,0,.18)}
+.dh{display:flex;align-items:center;justify-content:space-between;padding:18px 20px;border-bottom:1px solid var(--line)}
+.dh h2{margin:0;font-family:var(--f-display);font-size:26px;text-transform:uppercase;letter-spacing:.03em}
+.x{border:0;background:none;font-size:26px;line-height:1;color:var(--muted);padding:4px 8px}
+.db{flex:1;overflow:auto;padding:8px 20px}
+.line{display:grid;grid-template-columns:56px 1fr auto;gap:12px;padding:14px 0;border-bottom:1px solid var(--line);align-items:start}
+.line .th{width:56px;aspect-ratio:4/5;background:var(--tile);border-radius:4px;overflow:hidden;position:relative}
+.line .th img{width:100%;height:100%;object-fit:cover}
+.line h4{margin:0;font-size:14px;font-weight:600}
+.line .sub{font-size:12px;color:var(--muted)}
+.line .qs{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.line .qs span{font-size:11.5px;background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:2px 6px;font-variant-numeric:tabular-nums}
+.line .rt{text-align:right;font-variant-numeric:tabular-nums;font-weight:600;font-size:14px}
+.link{border:0;background:none;padding:0;color:var(--muted);font-size:12px;text-decoration:underline;margin-top:6px}
+.df{border-top:1px solid var(--line);padding:16px 20px 20px;display:flex;flex-direction:column;gap:12px}
+.tot{display:flex;justify-content:space-between;font-variant-numeric:tabular-nums}
+.tot b{font-size:18px}
+.note{border-radius:var(--r);padding:10px 12px;font-size:13px;background:var(--warn-soft);color:var(--warn)}
+textarea{width:100%;border:1px solid var(--line);border-radius:var(--r);background:var(--bg);padding:9px 10px;min-height:60px;resize:vertical}
+.fl{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+.primary{display:block;text-align:center;text-decoration:none;border:0;background:var(--accent);color:var(--accent-ink);border-radius:var(--r);padding:13px 16px;font-weight:600;font-size:15px}
+.primary[disabled]{opacity:.45;cursor:not-allowed}
+.ghost{border:1px solid var(--line);background:none;border-radius:var(--r);padding:11px 16px;font-weight:500}
+.dempty{padding:50px 10px;text-align:center;color:var(--muted)}
+.review{display:flex;flex-direction:column;gap:12px}
+.review dl{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin:0;font-size:14px}
+.review dt{color:var(--muted)}
+.review dd{margin:0;font-variant-numeric:tabular-nums;font-weight:500}
+pre.ordertext{white-space:pre-wrap;word-break:break-word;font-family:var(--f-mono);font-size:11.5px;background:var(--bg);border:1px solid var(--line);border-radius:var(--r);padding:10px;max-height:240px;overflow:auto;margin:0;user-select:all}
+.okbox{background:var(--accent-soft);border-radius:var(--r);padding:14px;font-size:14px}
+.okbox b{display:block;font-family:var(--f-display);font-size:22px;text-transform:uppercase;letter-spacing:.02em;color:var(--accent);margin-bottom:4px}
+
+/* name picker */
+.modal{position:fixed;inset:0;z-index:60;background:var(--bg);display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:calc(env(safe-area-inset-top,0px) + 8vh) 16px 40px}
+.pick{width:min(460px,100%);display:flex;flex-direction:column;gap:16px}
+.pick .brand b{font-size:40px}
+.pick h2{margin:6px 0 0;font-family:var(--f-display);font-size:30px;font-weight:600;text-transform:uppercase;letter-spacing:.02em}
+.pick p{margin:0;color:var(--muted)}
+.pick input{width:100%;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);padding:12px 14px;font-size:16px}
+.plist{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);max-height:46vh;overflow:auto}
+.plist button{display:flex;justify-content:space-between;gap:10px;border:0;border-bottom:1px solid var(--line);background:none;padding:12px 14px;text-align:left}
+.plist button:last-child{border-bottom:0}
+.plist button:hover,.plist button:focus-visible{background:var(--accent-soft)}
+.plist small{color:var(--muted);font-variant-numeric:tabular-nums}
+.hint{font-size:12.5px;color:var(--muted)}
+.toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 22px);transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:var(--r);font-size:14px;z-index:70}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+.ph img.a{opacity:0}
+.ph.hasA img.a{opacity:1}
+.ph.two:hover img.a,.ph.two.flip img.a{opacity:0}
+.banner{margin-top:18px;background:var(--accent-soft);color:var(--ink);border-radius:var(--r);padding:12px 14px;font-size:14px}
+.banner b{color:var(--accent)}
+fieldset.ship{border:0;padding:0;margin:4px 0 0;display:grid;grid-template-columns:repeat(6,1fr);gap:10px}
+fieldset.ship legend{padding:0;margin-bottom:8px}
+.f{display:flex;flex-direction:column;gap:4px;grid-column:span 6;min-width:0}
+.f span{font-size:12px;color:var(--muted)}
+.f input{width:100%;border:1px solid var(--line);border-radius:var(--r);background:var(--bg);padding:10px 11px;font-size:16px}
+.f-city{grid-column:span 3}.f-state{grid-column:span 1}.f-zip{grid-column:span 2}
+@media(max-width:420px){.f-city{grid-column:span 6}.f-state{grid-column:span 2}.f-zip{grid-column:span 4}}
+.primary:disabled{opacity:.6;cursor:progress}
+.grid{grid-template-columns:repeat(auto-fill,minmax(min(100%,210px),1fr))}
+@media(max-width:760px){
+  .bar1 .cartbtn{order:2}
+  nav.dept{order:5;width:auto;flex:1}
+  .who{order:6;margin-left:auto}
+  .search{flex:1 1 100%;margin-left:0}
+  .search input{width:100%;max-width:none}
+}
+@media(max-width:480px){
+  .grid{gap:10px}
+  .cb{padding:10px 10px 12px}
+  .ttl{flex-direction:column;gap:2px}
+  .price{text-align:left}
+  .price small{display:inline;margin-left:4px}
+  .ttl h3{font-size:18px}
+  .sizes{grid-template-columns:repeat(auto-fill,minmax(38px,1fr))}
+  nav.dept button{padding:6px 10px;font-size:17px}
+}
+</style></head><body>
+<header class="top">
+  <div class="wrap bar1">
+    <div class="brand"><b>Jetty</b><span id="seasonLbl">Ambassador Store</span></div>
+    <nav class="dept" id="dept">
+      <button type="button" data-d="mens" aria-pressed="true">Mens</button>
+      <button type="button" data-d="acc" aria-pressed="false">Accessories</button>
+    </nav>
+    <div class="spacer"></div>
+    <div class="who" id="who">
+      <span class="av" id="whoAv">·</span>
+      <span class="nm"><small>Ordering as</small><span id="whoNm">Loading…</span></span>
+    </div>
+    <button type="button" class="cartbtn" id="cartBtn">Cart <span class="ct" id="cartCt">0</span></button>
+  </div>
+  <div class="wrap allow">
+    <span class="lbl">Your allowance</span>
+    <div class="meter" id="meter" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Allowance used"><i id="meterFill"></i></div>
+    <span class="nums" id="nums"></span>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="banner" id="placedBanner" hidden></div>
+  <div class="tools">
+    <div class="chips" id="chips"></div>
+    <label class="search"><span aria-hidden="true">⌕</span><input id="q" type="search" placeholder="Search styles" aria-label="Search styles"></label>
+  </div>
+  <div class="headline"><h1 id="h1">Mens</h1><span id="countLbl"></span></div>
+  <div class="grid" id="grid"></div>
+</main>
+
+<div class="scrim" id="scrim" hidden></div>
+<aside class="drawer" id="drawer" hidden aria-label="Cart">
+  <div class="dh"><h2 id="dTitle">Your cart</h2><button type="button" class="x" id="closeCart" aria-label="Close cart">×</button></div>
+  <div class="db" id="dBody"></div>
+  <div class="df" id="dFoot"></div>
+</aside>
+
+<div class="modal" id="gate" hidden>
+  <div class="pick">
+    <div class="brand"><b>Jetty</b><span id="gateSeason">Ambassador Store</span></div>
+    <h2 id="gateH">Use your personal link</h2>
+    <p id="gateP">This store opens from the personal link in your invitation email. Open that email and tap the link to start your order.</p>
+    <p class="hint" id="gateC"></p>
+  </div>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+/* ===== Settings ===== */
+const CONFIG = {
+  season: "Summer 2027",
+  deadline: "",                         // e.g. "Friday, October 23". Shown in the header when set.
+  contact: "tyler@jettylife.com",
+  orderEndpoint: "",                    // Airtable automation webhook URL. Empty = copy-and-email fallback.
+};
+const PRODUCTS = [{"s":"0527BOTT-M1001APR","d":"Bottle Service Tee","c":"Apricot","a":"APR","p":34.0,"dept":"mens","sub":"Tees","so":0,"cat":"SS","season":"Summer 2027","z":[["XS","840530253954"],["S","840530253961"],["M","840530253978"],["L","840530253862"],["XL","840530253855"],["XXL","840530253848"],["3XL","840530253732"]]},{"s":"0527BOTT-M1001VLT","d":"Bottle Service Tee","c":"Violet","a":"VLT","p":34.0,"dept":"mens","sub":"Tees","so":0,"cat":"SS","season":"Summer 2027","z":[["XS","840530253749"],["S","840530253756"],["M","840530253763"],["L","840530253770"],["XL","840530253787"],["XXL","840530253794"],["3XL","840530253800"]]},{"s":"0527COOL-M1001LTB","d":"Cool Ones Pocket Tee","c":"Light Blue","a":"LTB","p":34.0,"dept":"mens","sub":"Tees","so":0,"cat":"SS","season":"Summer 2027","z":[["XS","840530253091"],["S","840530253107"],["M","840530253114"],["L","840530253121"],["XL","840530253138"],["XXL","840530253145"],["3XL","840530253039"]]},{"s":"0527DIVE-M1001CLD","d":"Dive Bar Tee","c":"Cloud","a":"CLD","p":34.0,"dept":"mens","sub":"Tees","so":0,"cat":"SS","season":"Summer 2027","z":[["XS","840530253374"],["S","840530253381"],["M","840530253398"],["L","840530253404"],["XL","840530253411"],["XXL","840530253428"],["3XL","840530253312"]]},{"s":"0527GLOB-M1001MNT","d":"Global Tee","c":"Mint","a":"MNT","p":34.0,"dept":"mens","sub":"Tees","so":0,"cat":"SS","season":"Summer 2027","z":[["XS","840530254807"],["S","840530254814"],["M","840530254821"],["L","840530254975"],["XL","840530254982"],["XXL","840530254999"],["3XL","840530255002"]]},{"s":"0527IRIS-M1001BLK","d":"Iris Tee","c":"Black","a":"BLK","p":34.0,"dept":"mens","sub":"Tees","so":0,"cat":"SS","season":"Summer 2027","z":[["XS","840530254166"],["S","840530254173"],["M","840530254180"],["L","840530254197"],["XL","840530254203"],["XXL","840530254210"],["3XL","840530254227"]]},{"s":"0527LAND-M1003NVY","d":"Land of Stoke Tank","c":"Navy Blue","a":"NVY","p":34.0,"dept":"mens","sub":"Tees","so":0,"cat":"Sleeveless","season":"Summer 2027","z":[["XS","840530254265"],["S","840530254272"],["M","840530254425"],["L","840530254432"],["XL","840530254449"],["XXL","840530254456"],["3XL","840530254463"]]},{"s":"0527LAND-M1001NVY","d":"Land of Stoke Tee","c":"Navy Blue","a":"NVY","p":34.0,"dept":"mens","sub":"Tees","so":0,"cat":"SS","season":"Summer 2027","z":[["XS","840530254050"],["S","840530254067"],["M","840530254074"],["L","840530254081"],["XL","840530254098"],["XXL","840530254104"],["3XL","840530254258"]]},{"s":"0527LIGH-M1001NVY","d":"Lighthouse Tee","c":"Navy","a":"NVY","p":34.0,"dept":"mens","sub":"Tees","so":0,"cat":"SS","season":"Summer 2027","z":[["XS","840530254296"],["S","840530254302"],["M","840530254319"],["L","840530254326"],["XL","840530254333"],["XXL","840530254340"],["3XL","840530254357"]]},{"s":"0527LOGD-M1001APR","d":"Logdays Tee","c":"Apricot","a":"APR","p":34.0,"dept":"mens","sub":"Tees","so":0,"cat":"SS","season":"Summer 2027","z":[["XS","840530252889"],["S","840530251233"],["M","840530251387"],["L","840530251394"],["XL","840530251400"],["XXL","840530251417"],["3XL","840530251424"]]},{"s":"0527NEED-M1001NVY","d":"Needlefish Tee","c":"Navy","a":"NVY","p":34.0,"dept":"mens","sub":"Tees","so":0,"cat":"SS","season":"Summer 2027","z":[["XS","840530251608"],["S","840530251615"],["M","840530251622"],["L","840530251776"],["XL","840530250687"],["XXL","840530250830"],["3XL","840530250847"]]},{"s":"0527NEED-M1001TEL","d":"Needlefish Tee","c":"Teal","a":"TEL","p":34.0,"dept":"mens","sub":"Tees","so":0,"cat":"SS","season":"Summer 2027","z":[["XS","840530250854"],["S","840530250861"],["M","840530250878"],["L","840530250885"],["XL","840530250892"],["XXL","840530250908"],["3XL","840530250915"]]},{"s":"0527POCK-M1001APR","d":"Pocket Dog Tee","c":"Apricot","a":"APR","p":34.0,"dept":"mens","sub":"Tees","so":0,"cat":"SS","season":"Summer 2027","z":[["XS","840530251110"],["S","840530251127"],["M","840530251134"],["L","840530251141"],["XL","840530251158"],["XXL","840530251165"],["3XL","840530251172"]]},{"s":"0527SNAG-M1001CLD","d":"Snagged Tee","c":"Cloud","a":"CLD","p":34.0,"dept":"mens","sub":"Tees","so":0,"cat":"SS","season":"Summer 2027","z":[["XS","840530252605"],["S","840530252612"],["M","840530252766"],["L","840530252773"],["XL","840530252780"],["XXL","840530252797"],["3XL","840530252803"]]},{"s":"0527STAR-M1001CLD","d":"Stars and Stripes Pocket Tee","c":"Cloud","a":"CLD","p":34.0,"dept":"mens","sub":"Tees","so":0,"cat":"SS","season":"Summer 2027","z":[["XS","840530252810"],["S","840530252827"],["M","840530252834"],["L","840530252841"],["XL","840530252858"],["XXL","840530252865"],["3XL","840530252759"]]},{"s":"0527STAR-M1003WHT","d":"Stars and Stripes Tank","c":"White","a":"WHT","p":34.0,"dept":"mens","sub":"Tees","so":0,"cat":"Sleeveless","season":"Summer 2027","z":[["XS","840530252742"],["S","840530252735"],["M","840530252629"],["L","840530252636"],["XL","840530252643"],["XXL","840530252650"],["3XL","840530252667"]]},{"s":"0527SUNF-M1001BLK","d":"Sunfire Tee","c":"Black","a":"BLK","p":34.0,"dept":"mens","sub":"Tees","so":0,"cat":"SS","season":"Summer 2027","z":[["XS","840530252711"],["S","840530252728"],["M","840530252872"],["L","840530251783"],["XL","840530251936"],["XXL","840530251943"],["3XL","840530251950"]]},{"s":"0527SUNF-M1001CLD","d":"Sunfire Tee","c":"Cloud","a":"CLD","p":34.0,"dept":"mens","sub":"Tees","so":0,"cat":"SS","season":"Summer 2027","z":[["XS","840530251967"],["S","840530251974"],["M","840530251981"],["L","840530251998"],["XL","840530252001"],["XXL","840530252018"],["3XL","840530252025"]]},{"s":"0527VOOD-M1001APR","d":"Voodoo Tee","c":"Apricot","a":"APR","p":34.0,"dept":"mens","sub":"Tees","so":0,"cat":"SS","season":"Summer 2027","z":[["XS","840530252193"],["S","840530252186"],["M","840530252070"],["L","840530252087"],["XL","840530252094"],["XXL","840530252100"],["3XL","840530252117"]]},{"s":"0527VOOD-M1001TEL","d":"Voodoo Tee","c":"Teal","a":"TEL","p":34.0,"dept":"mens","sub":"Tees","so":0,"cat":"SS","season":"Summer 2027","z":[["XS","840530252124"],["S","840530252131"],["M","840530252148"],["L","840530252155"],["XL","840530252162"],["XXL","840530252179"],["3XL","840530252322"]]},{"s":"0527ASBU-M1101LTB","d":"Asbury Knit Button Down","c":"Light Blue","a":"LTB","p":74.0,"dept":"mens","sub":"Shirts","so":1,"cat":"SS","season":"Summer 2027","z":[["S","840530253442"],["M","840530253596"],["L","840530253602"],["XL","840530253619"],["XXL","840530253626"]]},{"s":"0527DAYB-M1101BON","d":"Daybreak Shirt","c":"Bone","a":"BON","p":84.0,"dept":"mens","sub":"Shirts","so":1,"cat":"SS","season":"Summer 2027","z":[["S","840530252995"],["M","840530253008"],["L","840530253152"],["XL","840530253169"],["XXL","840530253176"]]},{"s":"0227GARW-M1101FOG","d":"Garwood Woven","c":"Fog Blue","a":"FOG","p":74.0,"dept":"mens","sub":"Shirts","so":1,"cat":"SS","season":"Spring 2027","z":[["S","840530249469"],["M","840530249476"],["L","840530249483"],["XL","840530249490"],["XXL","840530249506"]]},{"s":"0527GARW-M1101BLK","d":"Garwood Woven","c":"Deep Black","a":"BLK","p":74.0,"dept":"mens","sub":"Shirts","so":1,"cat":"SS","season":"Summer 2027","z":[["S","840530254791"],["M","840530254685"],["L","840530254678"],["XL","840530254661"],["XXL","840530254555"]]},{"s":"0527GARW-M1101MDN","d":"Garwood Woven","c":"Midnight Blue","a":"MDN","p":74.0,"dept":"mens","sub":"Shirts","so":1,"cat":"SS","season":"Summer 2027","z":[["S","840530254562"],["M","840530254579"],["L","840530254586"],["XL","840530254593"],["XXL","840530254609"]]},{"s":"0527GARW-M1101RED","d":"Garwood Woven","c":"Red","a":"RED","p":74.0,"dept":"mens","sub":"Shirts","so":1,"cat":"SS","season":"Summer 2027","z":[["S","840530254616"],["M","840530254623"],["L","840530254630"],["XL","840530254647"],["XXL","840530254654"]]},{"s":"0527KURT-M1101STR","d":"Kurt Plaid Shirt","c":"Storm","a":"STR","p":74.0,"dept":"mens","sub":"Shirts","so":1,"cat":"SS","season":"Summer 2027","z":[["S","840530254005"],["M","840530254012"],["L","840530254029"],["XL","840530254036"],["XXL","840530254043"]]},{"s":"0527MARI-M1101TAN","d":"Maris Embroidered Shirt","c":"Tan","a":"TAN","p":74.0,"dept":"mens","sub":"Shirts","so":1,"cat":"SS","season":"Summer 2027","z":[["S","840530251257"],["M","840530251264"],["L","840530251271"],["XL","840530251288"],["XXL","840530251295"]]},{"s":"0527MORS-M1101WHT","d":"Morse Woven Shirt","c":"White","a":"WHT","p":74.0,"dept":"mens","sub":"Shirts","so":1,"cat":"SS","season":"Summer 2027","z":[["S","840530251646"],["M","840530251639"],["L","840530251523"],["XL","840530251530"],["XXL","840530251547"]]},{"s":"0527SAND-M1109BON","d":"Sandspit Tech Woven Shirt","c":"Bone","a":"BON","p":79.0,"dept":"mens","sub":"Shirts","so":1,"cat":"SS","season":"Summer 2027","z":[["S","840530251080"],["M","840530250977"],["L","840530250984"],["XL","840530250991"],["XXL","840530251004"]]},{"s":"0527SAND-M1109NVY","d":"Sandspit Tech Woven Shirt","c":"Deep Navy","a":"NVY","p":79.0,"dept":"mens","sub":"Shirts","so":1,"cat":"SS","season":"Summer 2027","z":[["S","840530265339"],["M","840530265346"],["L","840530265353"],["XL","840530265360"],["XXL","840530265377"]]},{"s":"0527SAND-M1109TEL","d":"Sandspit Tech Woven Shirt","c":"Teal","a":"TEL","p":79.0,"dept":"mens","sub":"Shirts","so":1,"cat":"SS","season":"Summer 2027","z":[["S","840530265384"],["M","840530265391"],["L","840530265407"],["XL","840530265414"],["XXL","840530265421"]]},{"s":"0527SEAB-M1101NVY","d":"Seabrite Cotton Shirt","c":"Navy Blue","a":"NVY","p":69.0,"dept":"mens","sub":"Shirts","so":1,"cat":"SS","season":"Summer 2027","z":[["S","840530251011"],["M","840530251028"],["L","840530251035"],["XL","840530251042"],["XXL","840530251059"]]},{"s":"0527SEAB-M1101TAN","d":"Seabrite Cotton Shirt","c":"Earthy Tan","a":"TAN","p":69.0,"dept":"mens","sub":"Shirts","so":1,"cat":"SS","season":"Summer 2027","z":[["S","840530251066"],["M","840530251073"],["L","840530251226"],["XL","840530252339"],["XXL","840530252483"]]},{"s":"0527BUNK-M1211COR","d":"Bunker Polo Shirt","c":"Coral","a":"COR","p":74.0,"dept":"mens","sub":"Knits & Polos","so":2,"cat":"Polo","season":"Summer 2027","z":[["S","840530253817"],["M","840530253824"],["L","840530253831"],["XL","840530253985"],["XXL","840530252896"]]},{"s":"0527BUNK-M1211IND","d":"Bunker Polo Shirt","c":"Indigo","a":"IND","p":74.0,"dept":"mens","sub":"Knits & Polos","so":2,"cat":"Polo","season":"Summer 2027","z":[["S","840530253046"],["M","840530253053"],["L","840530253060"],["XL","840530253077"],["XXL","840530253084"]]},{"s":"0527CRUI-M1211LTG","d":"Cruise Terry Polo","c":"Light Grey","a":"LTG","p":49.0,"dept":"mens","sub":"Knits & Polos","so":2,"cat":"Polo","season":"Summer 2027","z":[["S","840530252940"],["M","840530252957"],["L","840530252964"],["XL","840530252971"],["XXL","840530252988"]]},{"s":"0527HYDR-M1007LTB","d":"Hydra UV Graphic LST","c":"Light Blue","a":"LTB","p":64.0,"dept":"mens","sub":"Knits & Polos","so":2,"cat":"Performance","season":"Summer 2027","z":[["S","840530246963"],["M","840530246871"],["L","840530246888"],["XL","840530246895"],["XXL","840530246901"]]},{"s":"0527HYDR-M1007SUN","d":"Hydra UV Graphic LST","c":"Sun","a":"SUN","p":64.0,"dept":"mens","sub":"Knits & Polos","so":2,"cat":"Performance","season":"Summer 2027","z":[["S","840530246406"],["M","840530246314"],["L","840530246307"],["XL","840530246215"],["XXL","840530246222"]]},{"s":"0227KNOL-M1211BON","d":"Knoll Polo","c":"Bone White","a":"BON","p":46.0,"dept":"mens","sub":"Knits & Polos","so":2,"cat":"Polo","season":"Spring 2027","z":[["S","840530247083"],["M","840530247533"],["L","840530247656"],["XL","840530247663"],["XXL","840530247670"]]},{"s":"0527KNOL-M1211MUS","d":"Knoll Polo","c":"Mustard","a":"MUS","p":46.0,"dept":"mens","sub":"Knits & Polos","so":2,"cat":"Polo","season":"Summer 2027","z":[["S","840530254234"],["M","840530254241"],["L","840530254135"],["XL","840530254128"],["XXL","840530254111"]]},{"s":"0527LEAR-M1213BON","d":"Leary Acid Wash Graphic Tee","c":"Bone","a":"BON","p":38.0,"dept":"mens","sub":"Knits & Polos","so":2,"cat":"Premium","season":"Summer 2027","z":[["S","840530254470"],["M","840530254487"],["L","840530254494"],["XL","840530254500"],["XXL","840530254517"]]},{"s":"0527LEAR-M1213DTL","d":"Leary Acid Wash Graphic Tee","c":"Dark Teal","a":"DTL","p":38.0,"dept":"mens","sub":"Knits & Polos","so":2,"cat":"Premium","season":"Summer 2027","z":[["S","840530254524"],["M","840530254418"],["L","840530254401"],["XL","840530254395"],["XXL","840530254289"]]},{"s":"0527MAHI-M1208LTG","d":"Mahi UV Tech Hoodie","c":"Light Grey","a":"LTG","p":78.0,"dept":"mens","sub":"Knits & Polos","so":2,"cat":"Performance","season":"Summer 2027","z":[["S","840530247502"],["M","840530247519"],["L","840530247427"],["XL","840530247410"],["XXL","840530247328"]]},{"s":"0527MAHI-M1208SUN","d":"Mahi UV Tech Hoodie","c":"Sun","a":"SUN","p":78.0,"dept":"mens","sub":"Knits & Polos","so":2,"cat":"Performance","season":"Summer 2027","z":[["S","840530237787"],["M","840530237909"],["L","840530237916"],["XL","840530237923"],["XXL","840530237930"]]},{"s":"0527STRI-M1009SAG","d":"Striker UV","c":"Sage","a":"SAG","p":46.0,"dept":"mens","sub":"Knits & Polos","so":2,"cat":"Performance","season":"Summer 2027","z":[["S","840530242507"],["M","840530242514"],["L","840530242521"],["XL","840530242644"],["XXL","840530241777"]]},{"s":"0527STRI-M1009LTB","d":"Striker UV Graphic SS Tee","c":"Light Blue","a":"LTB","p":46.0,"dept":"mens","sub":"Knits & Polos","so":2,"cat":"Performance","season":"Summer 2027","z":[["S","840530242620"],["M","840530242637"],["L","840530242545"],["XL","840530242538"],["XXL","840530242446"]]},{"s":"0527TANK-M1213MNT","d":"Tanker Tee","c":"Mint","a":"MNT","p":38.0,"dept":"mens","sub":"Knits & Polos","so":2,"cat":"Premium","season":"Summer 2027","z":[["S","840530251899"],["M","840530252049"],["L","840530252056"],["XL","840530252063"],["XXL","840530252216"]]},{"s":"0527NAVI-M1304GRY","d":"Navigator Hoodie","c":"Light Grey","a":"GRY","p":92.0,"dept":"mens","sub":"Hoodies","so":3,"cat":"Hoodie","season":"Summer 2027","z":[["S","840530251554"],["M","840530251561"],["L","840530251578"],["XL","840530251585"],["XXL","840530251592"]]},{"s":"0527NEED-M4004NVY","d":"Needlefish Hoodie","c":"Navy","a":"NVY","p":69.0,"dept":"mens","sub":"Hoodies","so":3,"cat":"Hoodie","season":"Summer 2027","z":[["XS","840530250922"],["S","840530250939"],["M","840530250823"],["L","840530250816"],["XL","840530250809"],["XXL","840530250694"],["3XL","840530250700"]]},{"s":"0527PROC-M4004CLD","d":"Procession Hoodie","c":"Cloud","a":"CLD","p":69.0,"dept":"mens","sub":"Hoodies","so":3,"cat":"Hoodie","season":"Summer 2027","z":[["XS","840530266084"],["S","840530266091"],["M","840530266107"],["L","840530266114"],["XL","840530266121"],["XXL","840530266138"],["3XL","840530266145"]]},{"s":"0527CREE-M3128BRN","d":"Creek Walkshort","c":"Brown","a":"BRN","p":69.0,"dept":"mens","sub":"Walkshorts","so":4,"cat":"Walkshort","season":"Summer 2027","z":[["S","840530253022"],["M","840530253015"],["L","840530252902"],["XL","840530252919"],["XXL","840530252926"]]},{"s":"0527DAYB-M3128BON","d":"Daybreak Linen Short","c":"Bone","a":"BON","p":78.0,"dept":"mens","sub":"Walkshorts","so":4,"cat":"Walkshort","season":"Summer 2027","z":[["S","840530253329"],["M","840530253336"],["L","840530253343"],["XL","840530253350"],["XXL","840530253367"]]},{"s":"0527EPOC-M3127NVY","d":"Epoch Lounge Short","c":"Midnight Navy","a":"NVY","p":74.0,"dept":"mens","sub":"Walkshorts","so":4,"cat":"Lounge","season":"Summer 2027","z":[["S","840530253268"],["M","840530253275"],["L","840530253282"],["XL","840530253435"],["XXL","840530254548"]]},{"s":"0527FAIR-M3128GRY","d":"Fairview Corduroy Walkshort","c":"Grey","a":"GRY","p":69.0,"dept":"mens","sub":"Walkshorts","so":4,"cat":"Walkshort","season":"Summer 2027","z":[["S","840530254692"],["M","840530254708"],["L","840530254715"],["XL","840530254722"],["XXL","840530254739"]]},{"s":"0527FAIR-M3128NVY","d":"Fairview Corduroy Walkshort","c":"Navy","a":"NVY","p":69.0,"dept":"mens","sub":"Walkshorts","so":4,"cat":"Walkshort","season":"Summer 2027","z":[["S","840530254746"],["M","840530254753"],["L","840530254760"],["XL","840530254777"],["XXL","840530254784"]]},{"s":"0227MIDS-M3128BRN","d":"Midship Cord Walkshort","c":"Warm Brown","a":"BRN","p":74.0,"dept":"mens","sub":"Walkshorts","so":4,"cat":"Walkshort","season":"Spring 2027","z":[["26","840530238142"],["28","840530238159"],["30","840530238166"],["31","840530238173"],["32","840530238180"],["33","840530238197"],["34","840530238203"],["36","840530238111"],["38","840530238104"],["40","840530238012"]]},{"s":"0227MIDS-M3128NVY","d":"Midship Cord Walkshort","c":"Navy Blue","a":"NVY","p":74.0,"dept":"mens","sub":"Walkshorts","so":4,"cat":"Walkshort","season":"Spring 2027","z":[["26","840530237466"],["28","840530237473"],["30","840530237480"],["31","840530237497"],["32","840530237503"],["33","840530237510"],["34","840530237527"],["36","840530237534"],["38","840530237541"],["40","840530237459"]]},{"s":"0527MIDS-M3128LTB","d":"Midship Cord Walkshort","c":"Light Blue","a":"LTB","p":74.0,"dept":"mens","sub":"Walkshorts","so":4,"cat":"Walkshort","season":"Summer 2027","z":[["26","840530251301"],["28","840530251318"],["30","840530251325"],["31","840530251332"],["32","840530251349"],["33","840530251493"],["34","840530251509"],["36","840530251516"],["38","840530251660"],["40","840530251677"]]},{"s":"0527MIDS-M3128TAN","d":"Midship Cord Walkshort","c":"Tan","a":"TAN","p":74.0,"dept":"mens","sub":"Walkshorts","so":4,"cat":"Walkshort","season":"Summer 2027","z":[["26","840530251684"],["28","840530251691"],["30","840530251707"],["31","840530251714"],["32","840530251721"],["33","840530251738"],["34","840530251745"],["36","840530251752"],["38","840530251769"],["40","840530251653"]]},{"s":"0527SKIP-M3127GRY","d":"Skipper Lounge Short","c":"Light Grey","a":"GRY","p":72.0,"dept":"mens","sub":"Walkshorts","so":4,"cat":"Lounge","season":"Summer 2027","z":[["S","840530252360"],["M","840530252377"],["L","840530252384"],["XL","840530252391"],["XXL","840530252407"]]},{"s":"0227ATLA-M2021IND","d":"Atlantic Boardshort","c":"Indigo Multi","a":"IND","p":69.0,"dept":"mens","sub":"Boardshorts","so":5,"cat":"Boardshorts","season":"Spring 2027","z":[["26","840530245089"],["28","840530245096"],["30","840530245218"],["31","840530245225"],["32","840530245232"],["33","840530245249"],["34","840530245256"],["36","840530245263"],["38","840530245270"],["40","840530245287"]]},{"s":"0527ATLA-M2021NVY","d":"Atlantic Boardshort","c":"Navy Blue","a":"NVY","p":69.0,"dept":"mens","sub":"Boardshorts","so":5,"cat":"Boardshorts","season":"Summer 2027","z":[["26","840530253633"],["28","840530253640"],["30","840530253657"],["31","840530253664"],["32","840530253671"],["33","840530253688"],["34","840530253695"],["36","840530253589"],["38","840530253572"],["40","840530253565"]]},{"s":"0527ATLA-M2021TEL","d":"Atlantic Boardshort","c":"Teal","a":"TEL","p":69.0,"dept":"mens","sub":"Boardshorts","so":5,"cat":"Boardshorts","season":"Summer 2027","z":[["26","840530253459"],["28","840530253466"],["30","840530253473"],["31","840530253480"],["32","840530253497"],["33","840530253503"],["34","840530253510"],["36","840530253527"],["38","840530253534"],["40","840530253541"]]},{"s":"0527BAYS-M2021MNT","d":"Bayside Volley Shorts","c":"Mint","a":"MNT","p":59.0,"dept":"mens","sub":"Boardshorts","so":5,"cat":"Boardshorts","season":"Summer 2027","z":[["S","840530253558"],["M","840530253701"],["L","840530253718"],["XL","840530253725"],["XXL","840530253879"]]},{"s":"0527BAYS-M2021SLT","d":"Bayside Volley Shorts","c":"Slate Blue","a":"SLT","p":59.0,"dept":"mens","sub":"Boardshorts","so":5,"cat":"Boardshorts","season":"Summer 2027","z":[["S","840530253886"],["M","840530253893"],["L","840530253909"],["XL","840530253916"],["XXL","840530253923"]]},{"s":"0527BAYS-M2021TEL","d":"Bayside Volley Shorts","c":"Teal Blue","a":"TEL","p":59.0,"dept":"mens","sub":"Boardshorts","so":5,"cat":"Boardshorts","season":"Summer 2027","z":[["S","840530265452"],["M","840530265469"],["L","840530265476"],["XL","840530265483"],["XXL","840530265490"]]},{"s":"0227DRIF-M2021LTB","d":"Driftlock Boardshort","c":"Light Blue","a":"LTB","p":59.0,"dept":"mens","sub":"Boardshorts","so":5,"cat":"Boardshorts","season":"Spring 2027","z":[["26","840530243856"],["28","840530243863"],["30","840530243986"],["31","840530248417"],["32","840530248530"],["33","840530248547"],["34","840530248554"],["36","840530248561"],["38","840530248578"],["40","840530248585"]]},{"s":"0527DRIF-M2021RED","d":"Driftlock Boardshort","c":"Red","a":"RED","p":59.0,"dept":"mens","sub":"Boardshorts","so":5,"cat":"Boardshorts","season":"Summer 2027","z":[["26","840530253305"],["28","840530253299"],["30","840530253183"],["31","840530253190"],["32","840530253206"],["33","840530253213"],["34","840530253220"],["36","840530253237"],["38","840530253244"],["40","840530253251"]]},{"s":"0227HOLY-M2021AGV","d":"Holyoke Boardshort","c":"Agave","a":"AGV","p":79.0,"dept":"mens","sub":"Boardshorts","so":5,"cat":"Boardshorts","season":"Spring 2027","z":[["26","840530248875"],["28","840530248882"],["30","840530248899"],["31","840530248905"],["32","840530248912"],["33","840530248929"],["34","840530248936"],["36","840530248943"],["38","840530248950"],["40","840530249070"]]},{"s":"0527HOLY-M2021IND","d":"Holyoke Boardshort","c":"Indigo","a":"IND","p":79.0,"dept":"mens","sub":"Boardshorts","so":5,"cat":"Boardshorts","season":"Summer 2027","z":[["26","840530255064"],["28","840530255071"],["30","840530254968"],["31","840530254951"],["32","840530254944"],["33","840530254838"],["34","840530254845"],["36","840530254852"],["38","840530254869"],["40","840530254876"]]},{"s":"0227HUDS-M2022SAG","d":"Hudson Hybrid Boardshort","c":"Sage","a":"SAG","p":74.0,"dept":"mens","sub":"Boardshorts","so":5,"cat":"Hybrid","season":"Spring 2027","z":[["26","840530246833"],["28","840530246840"],["30","840530246758"],["31","840530246741"],["32","840530246659"],["33","840530246666"],["34","840530246673"],["36","840530246680"],["38","840530246697"],["40","840530246703"]]},{"s":"0527HUDS-M2022NVY","d":"Hudson Hybrid Boardshort","c":"Midnight Navy","a":"NVY","p":74.0,"dept":"mens","sub":"Boardshorts","so":5,"cat":"Hybrid","season":"Summer 2027","z":[["26","840530254883"],["28","840530254890"],["30","840530254906"],["31","840530254913"],["32","840530254920"],["33","840530254937"],["34","840530255088"],["36","840530253992"],["38","840530254142"],["40","840530254159"]]},{"s":"0527NELS-M2021ORG","d":"Nelson Classic Baggie","c":"Orange","a":"ORG","p":69.0,"dept":"mens","sub":"Boardshorts","so":5,"cat":"Boardshorts","season":"Summer 2027","z":[["26","840530250717"],["28","840530250724"],["30","840530250731"],["31","840530250748"],["32","840530250755"],["33","840530250762"],["34","840530250779"],["36","840530250786"],["38","840530250793"],["40","840530250946"]]},{"s":"0527RECK-M2021BLU","d":"Reckoner Lined Short","c":"Blue","a":"BLU","p":74.0,"dept":"mens","sub":"Boardshorts","so":5,"cat":"Boardshorts","season":"Summer 2027","z":[["S","840530251189"],["M","840530251196"],["L","840530251202"],["XL","840530251219"],["XXL","840530251103"]]},{"s":"0527SESS-M2026CHR","d":"Session Short","c":"Charcoal","a":"CHR","p":64.0,"dept":"mens","sub":"Boardshorts","so":5,"cat":"Hybrid","season":"Summer 2027","z":[["S","840530252490"],["M","840530252506"],["L","840530252513"],["XL","840530252520"],["XXL","840530252537"]]},{"s":"0527SESS-M2026DTL","d":"Session Short","c":"Dark Teal","a":"DTL","p":64.0,"dept":"mens","sub":"Boardshorts","so":5,"cat":"Hybrid","season":"Summer 2027","z":[["S","840530252544"],["M","840530252551"],["L","840530252568"],["XL","840530252575"],["XXL","840530252582"]]},{"s":"0527SWOO-M2021IND","d":"Swoop Boardshort","c":"Indigo","a":"IND","p":74.0,"dept":"mens","sub":"Boardshorts","so":5,"cat":"Boardshorts","season":"Summer 2027","z":[["26","840530251790"],["28","840530251806"],["30","840530251813"],["31","840530251820"],["32","840530251837"],["33","840530251844"],["34","840530251851"],["36","840530251868"],["38","840530251875"],["40","840530251882"]]},{"s":"0527BIRG-A6045DTL","d":"Birgi Hat","c":"Dark Teal","a":"DTL","p":34.0,"dept":"acc","sub":"Hats","so":6,"cat":"Hat","season":"Summer 2027","z":[["OS","840530253930"]]},{"s":"0527BLEN-A6045WHT","d":"Blender Hat","c":"White","a":"WHT","p":34.0,"dept":"acc","sub":"Hats","so":6,"cat":"Hat","season":"Summer 2027","z":[["OS","840530253947"]]},{"s":"0527CRIS-A6045BLU","d":"Crisp Hat","c":"Blue","a":"BLU","p":34.0,"dept":"acc","sub":"Hats","so":6,"cat":"Hat","season":"Summer 2027","z":[["OS","840530252933"]]},{"s":"0527GOOD-A6045NVY","d":"Good Old Days Hat","c":"Navy","a":"NVY","p":34.0,"dept":"acc","sub":"Hats","so":6,"cat":"Hat","season":"Summer 2027","z":[["OS","840530255057"]]},{"s":"0527NOWA-A6045SEA","d":"No Wave Day Hat","c":"Sea Green","a":"SEA","p":34.0,"dept":"acc","sub":"Hats","so":6,"cat":"Hat","season":"Summer 2027","z":[["OS","840530250953"]]},{"s":"0527OVER-A6045GRY","d":"Overboard Hat","c":"Grey","a":"GRY","p":34.0,"dept":"acc","sub":"Hats","so":6,"cat":"Hat","season":"Summer 2027","z":[["OS","840530250960"]]},{"s":"0527REPE-A6045NVY","d":"Repeater Hat","c":"Navy","a":"NVY","p":34.0,"dept":"acc","sub":"Hats","so":6,"cat":"Hat","season":"Summer 2027","z":[["OS","840530251097"]]},{"s":"0527VOOD-A6045COR","d":"Voodoo Hat","c":"Coral","a":"COR","p":34.0,"dept":"acc","sub":"Hats","so":6,"cat":"Hat","season":"Summer 2027","z":[["OS","840530252209"]]}];
+
+/* ===== State ===== */
+const S = { dept:"mens", sub:"All", q:"", me:null, code:"", cart:{}, ship:{} };
+const BY_UPC = {};
+PRODUCTS.forEach(p => p.z.forEach(([size, upc]) => BY_UPC[upc] = { p, size }));
+const $ = id => document.getElementById(id);
+const money = n => "$" + (Math.round(n*100)/100).toLocaleString("en-US",{minimumFractionDigits: n%1?2:0, maximumFractionDigits:2});
+const store = {
+  get(k){ try{ return JSON.parse(localStorage.getItem(k)) }catch(e){ return null } },
+  set(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)) }catch(e){} }
+};
+const K = s => "jas:" + CONFIG.season + ":" + (S.me ? S.me.id : "") + ":" + s;
+const initials = n => n.replace(/[^\p{L}\s'-]/gu,"").split(/\s+/).filter(Boolean).slice(0,2).map(w=>w[0].toUpperCase()).join("") || "·";
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+/* ===== Personal link: #CODE unlocks a/<sha256>.json (AES-GCM, key from the code) ===== */
+const b64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+async function fileIdFor(code){
+  const h = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("jetty-amb:" + code));
+  return [...new Uint8Array(h)].slice(0,10).map(b=>b.toString(16).padStart(2,"0")).join("");
+}
+async function unlock(code, blob){
+  const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(code), "PBKDF2", false, ["deriveKey"]);
+  const key = await crypto.subtle.deriveKey({name:"PBKDF2", salt:b64(blob.s), iterations:blob.k, hash:"SHA-256"}, base, {name:"AES-GCM", length:256}, false, ["decrypt"]);
+  const pt = await crypto.subtle.decrypt({name:"AES-GCM", iv:b64(blob.i)}, key, b64(blob.c));
+  return JSON.parse(new TextDecoder().decode(pt));
+}
+async function loadMe(){
+  let code = (location.hash || "").replace(/^#/, "").trim().toUpperCase();
+  if (!code) code = store.get("jas:code") || "";
+  if (!/^[A-Z0-9]{8,32}$/.test(code)) return null;
+  try {
+    const r = await fetch("a/" + await fileIdFor(code) + ".json", { cache: "no-store" });
+    if (!r.ok) return null;
+    const me = await unlock(code, await r.json());
+    store.set("jas:code", code);
+    if (location.hash.replace("#","").toUpperCase() !== code) history.replaceState(null, "", "#" + code);
+    S.code = code;
+    return me;
+  } catch(e) { return null; }
+}
+function showGate(){
+  $("gate").hidden = false;
+  $("gateC").innerHTML = `Can't find it, or the link isn't working? Email <strong style="user-select:all">${esc(CONFIG.contact)}</strong> and we'll resend it.`;
+}
+
+/* ===== Totals / header ===== */
+function totals(){
+  let units=0, value=0;
+  for (const [upc,q] of Object.entries(S.cart)) { const r=BY_UPC[upc]; if(!r||!q) continue; units+=q; value+=q*r.p.p; }
+  return { units, value };
+}
+function meterHTML(t, a){
+  const over = t.value > a, pct = a ? Math.min(100, t.value/a*100) : 0;
+  return { over, pct };
+}
+function renderHeader(){
+  const lbl = CONFIG.season + " Ambassador Store";
+  $("seasonLbl").textContent = $("gateSeason").textContent = lbl;
+  document.title = "Jetty " + lbl;
+  if (!S.me) return;
+  $("whoNm").textContent = S.me.n;
+  $("whoAv").textContent = initials(S.me.n);
+  const t = totals(), a = S.me.a, m = meterHTML(t, a);
+  $("cartCt").textContent = t.units;
+  $("meterFill").style.width = m.pct + "%";
+  $("meter").classList.toggle("over", m.over);
+  $("meter").setAttribute("aria-valuenow", Math.round(m.pct));
+  $("nums").innerHTML = `<b>${money(t.value)}</b> of ${money(a)} retail` + (m.over
+      ? `<span class="left over">${money(t.value-a)} over</span>`
+      : `<span class="left">${money(a - t.value)} left</span>`)
+    + (CONFIG.deadline ? `<span class="left">· Order by ${esc(CONFIG.deadline)}</span>` : "");
+  const placed = store.get(K("placed"));
+  $("placedBanner").hidden = !placed;
+  if (placed) $("placedBanner").innerHTML = `<b>Order ${esc(placed.id)} placed</b> on ${new Date(placed.at).toLocaleDateString("en-US",{month:"short",day:"numeric"})} for ${money(placed.value)} retail. Need to change something? Email <span style="user-select:all">${esc(CONFIG.contact)}</span>, or build a new cart and place it as a revision.`;
+}
+
+/* ===== Catalog ===== */
+function deptItems(){ return PRODUCTS.filter(p => p.dept === S.dept); }
+function renderChips(){
+  const subs = ["All", ...new Set(deptItems().map(p => p.sub))];
+  $("chips").innerHTML = subs.length > 2 ? subs.map(s => `<button type="button" class="chip" data-s="${esc(s)}" aria-pressed="${s===S.sub}">${esc(s)}</button>`).join("") : "";
+}
+$("chips").addEventListener("click", e => { const b=e.target.closest(".chip"); if(!b) return; S.sub=b.dataset.s; renderChips(); renderGrid(); });
+$("dept").addEventListener("click", e => {
+  const b=e.target.closest("button[data-d]"); if(!b) return;
+  S.dept=b.dataset.d; S.sub="All";
+  [...$("dept").children].forEach(x => x.setAttribute("aria-pressed", x===b));
+  renderChips(); renderGrid();
+});
+$("q").addEventListener("input", e => { S.q = e.target.value.trim().toLowerCase(); renderGrid(); });
+
+/* Photos: drop img/<STYLE>-1.jpg (main) and img/<STYLE>-2.jpg (hover) into the repo */
+const imgPath = (s, n) => "img/" + encodeURIComponent(s) + "-" + n + ".jpg";
+function photo(p){
+  return `<div class="none"><b>${esc(p.d.split(" ")[0])}</b><small>Photo coming soon</small></div>
+    <img class="a" src="${imgPath(p.s,1)}" alt="${esc(p.d)} in ${esc(p.c)}" loading="lazy" onload="this.parentNode.classList.add('hasA')" onerror="this.remove()">
+    <img class="b" src="${imgPath(p.s,2)}" alt="" loading="lazy" onload="this.parentNode.classList.add('two')" onerror="this.remove()">`;
+}
+function cardFoot(p){
+  let u=0; p.z.forEach(([,upc]) => u += S.cart[upc]||0);
+  return u ? `<b>${u} in cart</b> · ${money(u*p.p)} retail` : "Enter a quantity under each size";
+}
+function renderGrid(){
+  const nm = S.dept === "mens" ? "Mens" : "Accessories";
+  $("h1").textContent = S.sub === "All" ? nm : S.sub;
+  const items = deptItems().filter(p => (S.sub==="All" || p.sub===S.sub) &&
+    (!S.q || (p.d+" "+p.c+" "+p.s+" "+p.sub).toLowerCase().includes(S.q)));
+  $("countLbl").textContent = items.length + (items.length===1 ? " style" : " styles");
+  $("grid").innerHTML = items.length ? items.map(p => {
+    const has = p.z.some(([,u]) => S.cart[u]);
+    return `<article class="card${has?" has":""}" data-s="${esc(p.s)}">
+      <div class="ph">${photo(p)}${p.season!==CONFIG.season?`<span class="tag">${esc(p.season)}</span>`:""}</div>
+      <div class="cb">
+        <div class="ttl"><h3>${esc(p.d)}</h3><div class="price">${money(p.p)}<small>Retail</small></div></div>
+        <div class="meta"><span>${esc(p.c)}</span><span class="code">${esc(p.s)}</span></div>
+        <div class="sizes">${p.z.map(([size,upc]) => {
+          const v = S.cart[upc]||"";
+          return `<div class="sz"><label for="q${upc}">${esc(size)}</label><input id="q${upc}" data-u="${upc}" type="number" inputmode="numeric" min="0" max="99" step="1" value="${v}" class="${v?"on":""}" aria-label="${esc(p.d)} ${esc(p.c)} size ${esc(size)} quantity"></div>`;
+        }).join("")}</div>
+        <div class="cf">${cardFoot(p)}</div>
+      </div></article>`;
+  }).join("") : `<div class="empty">No styles match “${esc(S.q)}”.</div>`;
+}
+function setQty(upc, q){
+  q = Math.max(0, Math.min(99, parseInt(q,10) || 0));
+  if (q) S.cart[upc] = q; else delete S.cart[upc];
+  store.set(K("cart"), S.cart);
+  return q;
+}
+$("grid").addEventListener("input", e => {
+  const inp = e.target.closest("input[data-u]"); if(!inp || !S.me) return;
+  const q = setQty(inp.dataset.u, inp.value);
+  inp.classList.toggle("on", !!q);
+  const card = inp.closest(".card"), p = BY_UPC[inp.dataset.u].p;
+  card.classList.toggle("has", p.z.some(([,u]) => S.cart[u]));
+  card.querySelector(".cf").innerHTML = cardFoot(p);
+  renderHeader();
+});
+$("grid").addEventListener("change", e => { const inp=e.target.closest("input[data-u]"); if(inp) inp.value = S.cart[inp.dataset.u] || ""; });
+$("grid").addEventListener("click", e => { const ph=e.target.closest(".ph.two"); if(ph && matchMedia("(hover:none)").matches) ph.classList.toggle("flip"); });
+
+/* ===== Cart drawer: cart -> checkout -> done ===== */
+let step = "cart";
+function openCart(){ step = "cart"; $("drawer").hidden=false; $("scrim").hidden=false; renderCart(); }
+function closeCart(){ $("drawer").hidden=true; $("scrim").hidden=true; renderGrid(); renderHeader(); }
+$("cartBtn").addEventListener("click", () => S.me && openCart());
+$("closeCart").addEventListener("click", closeCart);
+$("scrim").addEventListener("click", closeCart);
+document.addEventListener("keydown", e => { if(e.key==="Escape" && !$("drawer").hidden) closeCart(); });
+
+function cartGroups(){
+  const g = new Map();
+  for (const [upc,q] of Object.entries(S.cart)) {
+    const r = BY_UPC[upc]; if(!r||!q) continue;
+    if(!g.has(r.p.s)) g.set(r.p.s, { p:r.p, lines:[] });
+    g.get(r.p.s).lines.push({ size:r.size, upc, q });
+  }
+  const arr=[...g.values()];
+  arr.forEach(x => x.lines.sort((a,b) => x.p.z.findIndex(z=>z[1]===a.upc) - x.p.z.findIndex(z=>z[1]===b.upc)));
+  return arr.sort((a,b) => (a.p.dept>b.p.dept?-1:a.p.dept<b.p.dept?1:0) || a.p.so-b.p.so || a.p.d.localeCompare(b.p.d));
+}
+const SHIP_FIELDS = [
+  ["name","Full name","name",true], ["line1","Street address","address-line1",true], ["line2","Apt, suite (optional)","address-line2",false],
+  ["city","City","address-level2",true], ["state","State","address-level1",true], ["zip","ZIP","postal-code",true], ["phone","Phone (optional)","tel",false]
+];
+function shipText(){ const s=S.ship; return [s.name, s.line1, s.line2, [s.city, s.state].filter(Boolean).join(", ") + " " + (s.zip||""), s.phone].filter(x=>x&&x.trim()).join("\n"); }
+function orderText(id){
+  const t = totals(), a = S.me.a, rows = [];
+  cartGroups().forEach(g => g.lines.forEach(l => rows.push(`${l.q} x ${g.p.s} ${l.size} | ${g.p.d} - ${g.p.c} | UPC ${l.upc}`)));
+  return [ id ? `Order: ${id}` : null, `Ambassador: ${S.me.n}`, `Store: ${CONFIG.season} Ambassador Store`, `Units: ${t.units}`,
+    `Retail total: ${money(t.value)} (allowance ${money(a)}${t.value>a?`, over by ${money(t.value-a)}`:""})`,
+    S.notes ? `Notes: ${S.notes}` : null, ``, `Ship to:`, shipText(), ``, ...rows ].filter(x => x!==null).join("\n");
+}
+function newOrderId(){
+  const d = new Date(), p = n => String(n).padStart(2,"0");
+  return "AMB-" + (S.me.id||"").slice(0,4).toUpperCase() + "-" + p(d.getMonth()+1) + p(d.getDate()) + p(d.getHours()) + p(d.getMinutes());
+}
+
+function renderCart(){
+  const groups = cartGroups(), t = totals(), a = S.me.a, m = meterHTML(t, a);
+  const body=$("dBody"), foot=$("dFoot");
+  if (step === "done") {
+    const placed = store.get(K("placed"));
+    $("dTitle").textContent = "Order placed";
+    body.innerHTML = `<div class="review" style="padding-top:12px"><div class="okbox"><b>Thanks, ${esc(S.me.f || S.me.n)}!</b>
+      Order <strong>${esc(placed.id)}</strong> is in. ${placed.units} units, ${money(placed.value)} retail.</div>
+      <p class="hint">We'll review it and follow up by email if anything needs to change. Questions: <span style="user-select:all">${esc(CONFIG.contact)}</span></p></div>`;
+    foot.innerHTML = `<button type="button" class="ghost" id="closeCart2">Done</button>`;
+    return;
+  }
+  if (step === "fallback") {
+    $("dTitle").textContent = "Email your order";
+    body.innerHTML = `<div class="review" style="padding-top:12px">
+      <p class="hint">Online ordering isn't switched on yet. Copy your order and email it to <strong style="user-select:all">${esc(CONFIG.contact)}</strong>.</p>
+      <pre class="ordertext" id="otext">${esc(orderText(S.pendingId))}</pre></div>`;
+    foot.innerHTML = `<button type="button" class="primary" id="copyOrder">Copy order</button><button type="button" class="ghost" id="toCheckout">Back</button>`;
+    return;
+  }
+  if (step === "checkout") {
+    $("dTitle").textContent = "Checkout";
+    body.innerHTML = `<form class="review" id="shipForm" style="padding-top:12px" novalidate>
+      <dl><dt>Name</dt><dd>${esc(S.me.n)}</dd><dt>Items</dt><dd>${t.units} units, ${groups.length} styles</dd>
+      <dt>Retail value</dt><dd>${money(t.value)} of ${money(a)}</dd></dl>
+      ${m.over?`<div class="note">This order is ${money(t.value-a)} over your allowance. You can still place it. We'll review it before it's approved.</div>`:""}
+      <fieldset class="ship"><legend class="fl">Ship to</legend>
+      ${SHIP_FIELDS.map(([k,l,ac,req]) => `<label class="f f-${k}"><span>${l}</span><input id="ship-${k}" name="${k}" autocomplete="shipping ${ac}" ${req?"required":""} value="${esc(S.ship[k]||"")}"${k==="state"?' maxlength="20"':""}${k==="zip"?' inputmode="numeric" maxlength="10"':""}${k==="phone"?' type="tel"':""}></label>`).join("")}
+      </fieldset>
+      <label class="fl" for="notes">Notes (optional)</label>
+      <textarea id="notes" placeholder="Fit questions, delivery instructions…">${esc(S.notes||"")}</textarea>
+      <div class="note" id="formErr" hidden></div>
+    </form>`;
+    foot.innerHTML = `<button type="button" class="primary" id="placeOrder">Place order</button><button type="button" class="ghost" id="backCart">Back to cart</button>`;
+    return;
+  }
+  $("dTitle").textContent = "Your cart";
+  if (!groups.length) {
+    body.innerHTML = `<div class="dempty">Your cart is empty.<br>Type a quantity under any size to add it.</div>`;
+    foot.innerHTML = `<button type="button" class="ghost" id="closeCart2">Keep shopping</button>`;
+    return;
+  }
+  body.innerHTML = groups.map(g => {
+    const u = g.lines.reduce((s,l)=>s+l.q,0);
+    return `<div class="line"><div class="th"><img src="${imgPath(g.p.s,1)}" alt="" onerror="this.remove()"></div>
+      <div><h4>${esc(g.p.d)}</h4><div class="sub">${esc(g.p.c)} · ${money(g.p.p)} each</div>
+        <div class="qs">${g.lines.map(l=>`<span>${esc(l.size)} × ${l.q}</span>`).join("")}</div>
+        <button type="button" class="link" data-rm="${esc(g.p.s)}">Remove</button></div>
+      <div class="rt">${money(u*g.p.p)}<div class="sub">${u} ${u===1?"unit":"units"}</div></div></div>`;
+  }).join("");
+  foot.innerHTML = `<div class="tot"><span>${t.units} units · retail value</span><b>${money(t.value)}</b></div>
+    <div class="meter${m.over?" over":""}"><i style="width:${m.pct}%"></i></div>
+    <div class="tot" style="font-size:13px;color:var(--muted)"><span>Allowance ${money(a)}</span><span>${m.over?`<span style="color:var(--warn);font-weight:600">${money(t.value-a)} over</span>`:`${money(a-t.value)} left`}</span></div>
+    ${m.over?`<div class="note">You're over your allowance. You can still place this order. We'll review it before it's approved.</div>`:""}
+    <button type="button" class="primary" id="toCheckout">Checkout</button>`;
+}
+$("drawer").addEventListener("input", e => {
+  if (e.target.id === "notes") S.notes = e.target.value;
+  else if (e.target.id && e.target.id.startsWith("ship-")) S.ship[e.target.name] = e.target.value;
+});
+async function placeOrder(btn){
+  const missing = SHIP_FIELDS.filter(([k,,,req]) => req && !(S.ship[k]||"").trim()).map(([,l]) => l.toLowerCase());
+  const err = $("formErr");
+  if (missing.length) { err.hidden=false; err.textContent = "Please add your " + missing.join(", ") + "."; return; }
+  err.hidden = true;
+  const t = totals(), id = newOrderId();
+  S.pendingId = id;
+  if (!CONFIG.orderEndpoint) { step = "fallback"; renderCart(); return; }
+  const payload = {
+    orderId: id, submittedAt: new Date().toISOString(), store: CONFIG.season + " Ambassador Store",
+    ambassador: S.me.n, ambassadorId: S.me.id, email: S.me.e, allowance: S.me.a,
+    retailTotal: Math.round(t.value*100)/100, units: t.units, overAllowance: t.value > S.me.a,
+    revisionOf: (store.get(K("placed"))||{}).id || "", notes: S.notes || "",
+    shipTo: { ...S.ship }, shipToText: shipText(),
+    lines: cartGroups().flatMap(g => g.lines.map(l => ({ upc:l.upc, style:g.p.s, size:l.size, color:g.p.a, colorName:g.p.c, description:g.p.d, qty:l.q, retail:g.p.p }))),
+    orderText: orderText(id)
+  };
+  btn.disabled = true; btn.textContent = "Placing order…";
+  try {
+    await fetch(CONFIG.orderEndpoint, { method:"POST", mode:"no-cors", headers:{ "Content-Type":"text/plain;charset=UTF-8" }, body: JSON.stringify(payload) });
+    store.set(K("placed"), { id, at: payload.submittedAt, units: t.units, value: t.value });
+    S.cart = {}; store.set(K("cart"), {}); S.notes = "";
+    step = "done"; renderCart(); renderHeader();
+  } catch (e) {
+    btn.disabled = false; btn.textContent = "Place order";
+    err.hidden = false; err.textContent = "Your order didn't go through. Check your connection and try again. If it keeps failing, email " + CONFIG.contact + ".";
+  }
+}
+$("drawer").addEventListener("click", e => {
+  const id = e.target.id;
+  if (e.target.dataset.rm) { const p = PRODUCTS.find(x=>x.s===e.target.dataset.rm); p.z.forEach(([,u])=>setQty(u,0)); renderCart(); renderHeader(); return; }
+  if (id==="toCheckout"){ step="checkout"; renderCart(); }
+  else if (id==="backCart"){ step="cart"; renderCart(); }
+  else if (id==="closeCart2"){ closeCart(); }
+  else if (id==="placeOrder"){ placeOrder(e.target); }
+  else if (id==="copyOrder"){
+    const txt = orderText(S.pendingId);
+    const done = () => toast("Order copied. Paste it into an email to " + CONFIG.contact);
+    const sel = () => { const r=document.createRange(); r.selectNodeContents($("otext")); const s=getSelection(); s.removeAllRanges(); s.addRange(r); toast("Order selected. Copy it and email it to " + CONFIG.contact); };
+    try { navigator.clipboard.writeText(txt).then(done, sel); } catch(err){ sel(); }
+  }
+});
+let tt; function toast(m){ const t=$("toast"); t.textContent=m; t.hidden=false; clearTimeout(tt); tt=setTimeout(()=>t.hidden=true, 3600); }
+
+/* ===== Boot ===== */
+(async function boot(){
+  renderHeader();
+  S.me = await loadMe();
+  if (!S.me) { $("whoNm").textContent = "—"; showGate(); return; }
+  S.cart = store.get(K("cart")) || {};
+  renderHeader(); renderChips(); renderGrid();
+})();
+window.addEventListener("hashchange", () => location.reload());
+</script>
+</body>
+</html>
