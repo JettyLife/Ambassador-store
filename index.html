@@ -168,7 +168,7 @@ fieldset.ship{border:0;padding:0;margin:4px 0 0;display:grid;grid-template-colum
 fieldset.ship legend{padding:0;margin-bottom:8px}
 .f{display:flex;flex-direction:column;gap:4px;grid-column:span 6;min-width:0}
 .f span{font-size:12px;color:var(--muted)}
-.f input{width:100%;border:1px solid var(--line);border-radius:var(--r);background:var(--bg);padding:10px 11px;font-size:16px}
+.f input,.f select{width:100%;border:1px solid var(--line);border-radius:var(--r);background:var(--bg);padding:10px 11px;font-size:16px}
 .f-city{grid-column:span 3}.f-state{grid-column:span 1}.f-zip{grid-column:span 2}
 @media(max-width:420px){.f-city{grid-column:span 6}.f-state{grid-column:span 2}.f-zip{grid-column:span 4}}
 .primary:disabled{opacity:.6;cursor:progress}
@@ -520,6 +520,7 @@ function cartGroups(){
   arr.forEach(x => x.lines.sort((a,b) => x.p.z.findIndex(z=>z[1]===a.upc) - x.p.z.findIndex(z=>z[1]===b.upc)));
   return arr.sort((a,b) => (a.p.dept>b.p.dept?-1:a.p.dept<b.p.dept?1:0) || a.p.so-b.p.so || a.p.d.localeCompare(b.p.d));
 }
+const US_STATES = "AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA PR RI SC SD TN TX UT VT VA WA WV WI WY".split(" ");
 const SHIP_FIELDS = [
   ["name","Full name","name",true], ["line1","Street address","address-line1",true], ["line2","Apt, suite (optional)","address-line2",false],
   ["city","City","address-level2",true], ["state","State","address-level1",true], ["zip","ZIP","postal-code",true], ["phone","Phone (optional)","tel",false]
@@ -577,7 +578,9 @@ function renderCart(){
         <span><b>${esc(m.label)}</b>${m.addr?`<small>${esc(m.addr)}</small>`:`<small>Shipped to an address you enter</small>`}</span></label>`).join("")}
       </fieldset>
       <fieldset class="ship" id="shipBox"${S.method==="delivery"?"":" hidden"}><legend class="fl">Delivery address</legend>
-      ${SHIP_FIELDS.map(([k,l,ac,req]) => `<label class="f f-${k}"><span>${l}</span><input id="ship-${k}" name="${k}" autocomplete="shipping ${ac}" ${req?"required":""} value="${esc(S.ship[k]||"")}"${k==="state"?' maxlength="20"':""}${k==="zip"?' inputmode="numeric" maxlength="10"':""}${k==="phone"?' type="tel"':""}></label>`).join("")}
+      ${SHIP_FIELDS.map(([k,l,ac,req]) => k === "state"
+        ? `<label class="f f-state"><span>${l}</span><select id="ship-state" name="state" autocomplete="shipping ${ac}">${US_STATES.map(c => `<option${(S.ship.state||"NJ")===c?" selected":""}>${c}</option>`).join("")}</select></label>`
+        : `<label class="f f-${k}"><span>${l}</span><input id="ship-${k}" name="${k}" autocomplete="shipping ${ac}" ${req?"required":""} value="${esc(S.ship[k]||"")}"${k==="zip"?' inputmode="numeric" maxlength="10"':""}${k==="phone"?' type="tel"':""}></label>`).join("")}
       </fieldset>
       <label class="fl" for="notes">Notes (optional)</label>
       <textarea id="notes" placeholder="Fit questions, delivery instructions…">${esc(S.notes||"")}</textarea>
@@ -611,8 +614,10 @@ function renderCart(){
     <button type="button" class="primary" id="toCheckout">Checkout</button>`;
 }
 $("drawer").addEventListener("change", e => {
+  if (e.target.id === "ship-state") { S.ship.state = e.target.value; return; }
   if (e.target.name === "method") {
     S.method = e.target.value;
+    if (!S.ship.state) S.ship.state = "NJ";
     document.querySelectorAll(".mopt").forEach(l => l.classList.toggle("on", l.querySelector("input").checked));
     $("shipBox").hidden = S.method !== "delivery";
     $("formErr").hidden = true;
@@ -626,6 +631,7 @@ $("drawer").addEventListener("change", e => {
 $("drawer").addEventListener("input", e => {
   if (e.target.id === "notes") S.notes = e.target.value;
   else if (e.target.id && e.target.id.startsWith("ship-")) S.ship[e.target.name] = e.target.value;
+
 });
 async function placeOrder(btn){
   const err = $("formErr");

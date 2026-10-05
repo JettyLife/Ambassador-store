@@ -20,6 +20,17 @@ const AM_TOKEN = process.env.AM_TOKEN || "";
 const AM_BASE = process.env.AM_BASE_URL || `https://${process.env.AM_SUBDOMAIN || "jetty"}.app.apparelmagic.com/api/json/`;
 const WAREHOUSE_NAME = process.env.AM_WAREHOUSE_NAME || "Distribution Center";
 const DRY_RUN = process.env.AM_DRY_RUN === "1";
+const DIVISION_NAME = process.env.AM_DIVISION_NAME || "MARKETING / PROMO";
+const SOURCE_FIELD = process.env.AM_SOURCE_FIELD || "source";   // order header field that holds Source
+const SOURCE_VALUE = process.env.AM_SOURCE_VALUE || "B2B";
+const DEFAULT_STATE = "NJ";
+const STATES = {AL:"ALABAMA",AK:"ALASKA",AZ:"ARIZONA",AR:"ARKANSAS",CA:"CALIFORNIA",CO:"COLORADO",CT:"CONNECTICUT",DE:"DELAWARE",DC:"DISTRICT OF COLUMBIA",FL:"FLORIDA",GA:"GEORGIA",HI:"HAWAII",ID:"IDAHO",IL:"ILLINOIS",IN:"INDIANA",IA:"IOWA",KS:"KANSAS",KY:"KENTUCKY",LA:"LOUISIANA",ME:"MAINE",MD:"MARYLAND",MA:"MASSACHUSETTS",MI:"MICHIGAN",MN:"MINNESOTA",MS:"MISSISSIPPI",MO:"MISSOURI",MT:"MONTANA",NE:"NEBRASKA",NV:"NEVADA",NH:"NEW HAMPSHIRE",NJ:"NEW JERSEY",NM:"NEW MEXICO",NY:"NEW YORK",NC:"NORTH CAROLINA",ND:"NORTH DAKOTA",OH:"OHIO",OK:"OKLAHOMA",OR:"OREGON",PA:"PENNSYLVANIA",RI:"RHODE ISLAND",SC:"SOUTH CAROLINA",SD:"SOUTH DAKOTA",TN:"TENNESSEE",TX:"TEXAS",UT:"UTAH",VT:"VERMONT",VA:"VIRGINIA",WA:"WASHINGTON",WV:"WEST VIRGINIA",WI:"WISCONSIN",WY:"WYOMING",PR:"PUERTO RICO"};
+function stateCode(v) {
+  const t = String(v || "").trim().toUpperCase().replace(/\./g, "");
+  if (STATES[t]) return t;
+  const hit = Object.entries(STATES).find(([, n]) => n === t);
+  return hit ? hit[0] : DEFAULT_STATE;
+}
 const UA = "JettyAmbassadorStore/1.0 (+https://jettyambassador.up.railway.app)";
 
 const CATALOG = JSON.parse(fs.readFileSync(path.join(ROOT, "catalog.json"), "utf8")); // upc -> {s,size,p,d,c,a}
@@ -73,13 +84,21 @@ async function amPost(endpoint, payload) {
   return j.response || [];
 }
 
-const cache = { warehouseId: process.env.AM_WAREHOUSE_ID || "", customers: new Map(), skus: new Map() };
+const cache = { divisionId: process.env.AM_DIVISION_ID || "", warehouseId: process.env.AM_WAREHOUSE_ID || "", customers: new Map(), skus: new Map() };
 async function warehouseId() {
   if (cache.warehouseId) return cache.warehouseId;
   const rows = await amGet("warehouses/");
   const w = rows.find(r => String(r.name || r.warehouse_name || "").trim().toLowerCase() === WAREHOUSE_NAME.toLowerCase());
   if (!w) throw new Error(`Warehouse "${WAREHOUSE_NAME}" not found in AM`);
   return (cache.warehouseId = String(w.warehouse_id || w.id));
+}
+async function divisionId() {
+  if (cache.divisionId) return cache.divisionId;
+  const norm = x => String(x || "").replace(/\s+/g, " ").trim().toLowerCase();
+  const rows = await amGet("divisions/");
+  const d = rows.find(r => [r.name, r.division_name, r.description, r.code].some(v => norm(v) === norm(DIVISION_NAME)));
+  if (!d) throw new Error(`Division "${DIVISION_NAME}" not found in AM`);
+  return (cache.divisionId = String(d.division_id || d.id));
 }
 async function customerId(name) {
   if (cache.customers.has(name)) return cache.customers.get(name);
@@ -121,17 +140,20 @@ async function handleOrder(input) {
     customer_id: await customerId(me.amc),
     customer_po: me.po,
     warehouse_id: await warehouseId(),
+    division_id: await divisionId(),
+    [SOURCE_FIELD]: SOURCE_VALUE,
     pct_discount: "100",
+    state: DEFAULT_STATE,
   };
   let fulfil;
   if (PICKUP[method]) {
     fulfil = `${PICKUP[method].label} (${PICKUP[method].addr})`;
     header.shipping_info = PICKUP[method].label;
   } else if (method === "delivery") {
-    for (const k of ["name", "line1", "city", "state", "zip"]) if (!String(s[k] || "").trim()) throw Object.assign(new Error("Delivery address is incomplete."), { status: 400 });
+    for (const k of ["name", "line1", "city", "zip"]) if (!String(s[k] || "").trim()) throw Object.assign(new Error("Delivery address is incomplete."), { status: 400 });
     Object.assign(header, {
       name: String(s.name).slice(0, 100), address_1: String(s.line1).slice(0, 100), address_2: String(s.line2 || "").slice(0, 100),
-      city: String(s.city).slice(0, 60), state: String(s.state).slice(0, 20), postal_code: String(s.zip).slice(0, 12),
+      city: String(s.city).slice(0, 60), state: stateCode(s.state), postal_code: String(s.zip).slice(0, 12),
       country: "USA", phone: String(s.phone || "").slice(0, 30), shipping_info: "Delivery",
     });
     fulfil = "Delivery";
@@ -179,7 +201,7 @@ http.createServer(async (req, res) => {
     if (url.pathname === "/api/health") {
       const out = { ok: true, tokenSet: !!AM_TOKEN, dryRun: DRY_RUN, subdomain: AM_BASE.split("//")[1].split(".")[0] };
       if (url.searchParams.get("check") === "1" && process.env.ADMIN_KEY && url.searchParams.get("key") === process.env.ADMIN_KEY) {
-        try { out.warehouseId = await warehouseId(); out.amReachable = true; } catch (e) { out.amReachable = false; out.amError = e.message; }
+        try { out.warehouseId = await warehouseId(); out.divisionId = await divisionId(); out.amReachable = true; } catch (e) { out.amReachable = false; out.amError = e.message; }
       }
       return send(res, 200, out);
     }
