@@ -308,6 +308,57 @@ header.top .band .brand span.wm b{color:#ffffff}
 .meter i:not(.used){background:#8fa3aa}
 .meter.over i:not(.used){background:var(--warn)}
 .meter{border-radius:999px;overflow:hidden}
+/* ===== profile ===== */
+button.who{font:inherit;cursor:pointer;text-align:left}
+.band .who:hover{background:rgba(255,255,255,.2)}
+body.noscroll{overflow:hidden}
+.profile{position:fixed;inset:0;z-index:50;background:var(--bg);overflow:auto;padding-bottom:env(safe-area-inset-bottom,0px)}
+.profile::before{content:"";position:fixed;inset:0;background:var(--slate);opacity:.045;z-index:-1;
+  -webkit-mask:url(brand/topo.png) 0 0/1100px auto repeat;mask:url(brand/topo.png) 0 0/1100px auto repeat;pointer-events:none}
+.pband{position:sticky;top:0;z-index:2;background:var(--slate);color:#fff;overflow:hidden;padding-top:env(safe-area-inset-top,0px)}
+.pband::before{content:"";position:absolute;inset:0;background:#fff;opacity:.13;-webkit-mask:url(brand/topo.png) 0 0/900px auto repeat;mask:url(brand/topo.png) 0 0/900px auto repeat}
+.pbar{position:relative;display:flex;flex-direction:column;gap:14px;padding-block:14px 22px}
+.pback{align-self:flex-start;border:1px solid rgba(255,255,255,.4);background:transparent;color:#fff;border-radius:999px;padding:6px 14px;font-weight:500}
+.pback:hover{background:rgba(255,255,255,.12)}
+.pwho{display:flex;align-items:center;gap:14px}
+.pwho small{color:rgba(255,255,255,.75);text-transform:uppercase;letter-spacing:.14em;font-size:11px}
+.pwho h2{margin:2px 0 0;font-family:var(--f-display);font-size:34px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;line-height:1}
+.av.big{width:54px;height:54px;font-size:20px;border-radius:50%;background:#fff;color:var(--slate);display:grid;place-items:center;font-weight:700;flex:none}
+.pbody{padding-block:22px 60px;max-width:880px}
+.pload{padding:30px 0}
+.psum{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.psum div{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px}
+.psum small{display:block;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.psum b{font-family:var(--f-display);font-size:26px;font-variant-numeric:tabular-nums}
+.psec{font-family:var(--f-display);font-size:22px;text-transform:uppercase;letter-spacing:.03em;margin:26px 0 12px}
+.scards{display:flex;flex-direction:column;gap:12px}
+.scard{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.scard.cur{border-color:var(--slate)}
+.shead{all:unset;box-sizing:border-box;cursor:pointer;width:100%;display:grid;grid-template-columns:1fr auto;gap:8px 16px;padding:16px 18px;position:relative}
+.shead:focus-visible{outline:2px solid var(--slate);outline-offset:-2px}
+.stitle{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.stitle b{font-family:var(--f-display);font-size:24px;text-transform:uppercase;letter-spacing:.02em}
+.stitle em{font-style:normal;font-size:11px;letter-spacing:.08em;text-transform:uppercase;background:var(--slate);color:#fff;border-radius:999px;padding:3px 8px}
+.snums{text-align:right;font-variant-numeric:tabular-nums;padding-right:30px}
+.snums b{font-size:18px}
+.shead .meter{grid-column:1/-1;height:8px}
+.smeta{grid-column:1/-1;color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums}
+.smeta .o{color:var(--warn);font-weight:600}
+.chev{position:absolute;right:16px;top:16px;width:26px;height:26px;border-radius:50%;border:1px solid var(--line);display:grid;place-items:center;font-size:16px;color:var(--muted)}
+.sbody{border-top:1px solid var(--line);padding:6px 18px 16px;background:var(--tile)}
+.pord{padding-top:12px}
+.pordh{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:13px;color:var(--muted);padding-bottom:6px}
+.pordh b{color:var(--ink)}
+.pit{display:grid;grid-template-columns:48px 1fr auto;gap:12px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:8px 10px;margin-top:6px}
+.pth{width:48px;aspect-ratio:4/5;background:var(--tile);border-radius:4px;overflow:hidden}
+.pth img{width:100%;height:100%;object-fit:cover}
+.pinfo{min-width:0}
+.pinfo b{display:block;font-size:14px;font-weight:600}
+.pinfo small{color:var(--muted);font-size:12px}
+.pinfo .code{font-family:var(--f-mono);font-size:11px}
+.pq{text-align:right;font-weight:600;font-variant-numeric:tabular-nums}
+.pq small{display:block;color:var(--muted);font-weight:400;font-size:12px}
+@media(max-width:520px){.psum b{font-size:20px}.snums{grid-column:1/-1;text-align:left;padding-right:0}.pwho h2{font-size:26px}}
 </style></head><body>
 <header class="top">
   <div class="band">
@@ -318,10 +369,10 @@ header.top .band .brand span.wm b{color:#ffffff}
         <button type="button" data-d="acc" aria-pressed="false">Accessories</button>
       </nav>
       <div class="actions">
-        <div class="who" id="who">
+        <button type="button" class="who" id="who" title="Your profile and past orders">
           <span class="av" id="whoAv">·</span>
           <span class="nm"><small>Ordering as</small><span id="whoNm">Loading…</span></span>
-        </div>
+        </button>
         <button type="button" class="sizesbtn" id="sizesBtn">My sizes</button>
         <button type="button" class="cartbtn" id="cartBtn">Cart <span class="ct" id="cartCt">0</span></button>
       </div>
@@ -370,6 +421,13 @@ header.top .band .brand span.wm b{color:#ffffff}
     <button type="button" class="primary" id="sizesSave">Save sizes</button>
     <button type="button" class="ghost" id="sizesSkip">Skip for now</button>
   </div>
+</div>
+<div class="profile" id="profile" hidden>
+  <div class="pband"><div class="wrap pbar">
+    <button type="button" class="pback" id="profBack">‹ Back to store</button>
+    <div class="pwho"><span class="av big" id="profAv">·</span><div><small>Ambassador profile</small><h2 id="profName"></h2></div></div>
+  </div></div>
+  <div class="wrap pbody" id="profBody"></div>
 </div>
 <div class="toast" id="toast" hidden></div>
 
@@ -791,7 +849,7 @@ async function placeOrder(btn){
   store.set(K("placed"), { id, am: j.amOrderId || "", at: new Date().toISOString(), units: t.units, value: t.value });
   S.spent = typeof j.spent === "number" ? j.spent : (S.spent || 0) + t.value;
   S.spentOrders = (S.spentOrders || []).concat([{ amOrderId: j.amOrderId, date: new Date().toLocaleDateString("en-US"), units: t.units, retail: t.value }]);
-  setTimeout(loadSpent, 8000);
+  setTimeout(loadSpent, 8000); PROF = null;
   S.cart = {}; store.set(K("cart"), {}); S.notes = ""; S.method = "";
   step = "done"; renderCart(); renderHeader();
 }
@@ -814,6 +872,63 @@ $("drawer").addEventListener("click", e => {
   }
 });
 let tt; function toast(m){ const t=$("toast"); t.textContent=m; t.hidden=false; clearTimeout(tt); tt=setTimeout(()=>t.hidden=true, 3600); }
+
+/* ===== Profile: season cards from AM, click a card for the products ===== */
+let PROF = null, profOpen = null;
+function openProfile(){
+  if (!S.me) return;
+  $("profName").textContent = S.me.n; $("profAv").textContent = initials(S.me.n);
+  $("profile").hidden = false; document.body.classList.add("noscroll");
+  profOpen = null; renderProfile(); loadProfile();
+}
+function closeProfile(){ $("profile").hidden = true; document.body.classList.remove("noscroll"); }
+async function loadProfile(){
+  try {
+    const r = await fetch("/api/history", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ code: S.code }) });
+    const j = await r.json();
+    PROF = r.ok && j.ok ? j : { error: true };
+  } catch (e) { PROF = { error: true }; }
+  if (PROF.seasons && !profOpen) { const c = PROF.seasons.find(s => s.current && s.orders.length); if (c) profOpen = c.code; }
+  renderProfile();
+}
+const thumbFor = style => { const p = PRODUCTS.find(x => x.s === style); return p && p.imgs && p.imgs[0] || ""; };
+function seasonCard(s){
+  const a = s.allowance, pct = a ? Math.min(100, s.spent / a * 100) : 0, over = a && s.spent > a, open = profOpen === s.code;
+  return `<article class="scard${open ? " open" : ""}${s.current ? " cur" : ""}">
+    <button type="button" class="shead" data-season="${esc(s.code)}" aria-expanded="${open}">
+      <span class="stitle"><b>${esc(s.label)}</b>${s.current ? `<em>Current season</em>` : ""}</span>
+      <span class="snums"><b>${money(s.spent)}</b>${a ? ` of ${money(a)}` : ""} retail</span>
+      ${a ? `<span class="meter${over ? " over" : ""}"><i class="used" style="width:${pct}%"></i></span>` : ""}
+      <span class="smeta">${s.orders.length} order${s.orders.length === 1 ? "" : "s"} · ${s.units} units${a ? (over ? ` · <span class="o">${money(s.spent - a)} over</span>` : ` · ${money(a - s.spent)} left`) : ""}</span>
+      <span class="chev" aria-hidden="true">${open ? "−" : "+"}</span>
+    </button>
+    ${open ? `<div class="sbody">${s.orders.length ? s.orders.map(o => `
+      <div class="pord"><div class="pordh"><b>Order ${esc(o.amOrderId)}</b><span>${esc(o.date)} · ${o.units} units · ${money(o.retail)}</span></div>
+        ${o.items.map(it => { const th = thumbFor(it.style); return `<div class="pit">
+          <div class="pth">${th ? `<img src="${esc(th)}" alt="" loading="lazy" onerror="this.remove()">` : ""}</div>
+          <div class="pinfo"><b>${esc(it.desc || it.style)}</b><small>${esc((PRODUCTS.find(x => x.s === it.style) || {}).c || it.color)} · Size ${esc(it.size)} · <span class="code">${esc(it.style)}</span></small></div>
+          <div class="pq">× ${it.qty}<small>${money(it.qty * it.retail)}</small></div></div>`; }).join("")}
+      </div>`).join("") : `<p class="hint">No orders yet this season.</p>`}</div>` : ""}
+  </article>`;
+}
+function renderProfile(){
+  const body = $("profBody");
+  if (!PROF) { body.innerHTML = `<p class="hint pload">Loading your orders…</p>`; return; }
+  if (PROF.error) { body.innerHTML = `<p class="hint pload">We couldn't load your order history right now. Try again in a minute.</p>`; return; }
+  const seasons = PROF.seasons || [];
+  const lifetime = seasons.reduce((t, s) => t + s.spent, 0), orders = seasons.reduce((t, s) => t + s.orders.length, 0);
+  body.innerHTML = `<div class="psum"><div><small>Seasons</small><b>${seasons.filter(s => s.orders.length).length}</b></div>
+      <div><small>Orders</small><b>${orders}</b></div><div><small>Total retail value</small><b>${money(lifetime)}</b></div></div>
+    <h3 class="psec">Your seasons</h3>
+    <div class="scards">${seasons.map(seasonCard).join("") || `<p class="hint">No orders yet.</p>`}</div>`;
+}
+$("who").addEventListener("click", openProfile);
+$("profBack").addEventListener("click", closeProfile);
+$("profBody").addEventListener("click", e => {
+  const h = e.target.closest("[data-season]"); if (!h) return;
+  profOpen = profOpen === h.dataset.season ? null : h.dataset.season; renderProfile();
+});
+document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("profile").hidden) closeProfile(); });
 
 /* ===== Boot ===== */
 (async function boot(){

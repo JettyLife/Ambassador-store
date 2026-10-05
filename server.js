@@ -153,6 +153,58 @@ async function seasonSpend(me, fresh = false) {
   return data;
 }
 
+/* ---------- profile: every season's ambassador orders for this customer ---------- */
+const SEASON_NAMES = { SPR: "Spring", SUM: "Summer", FAL: "Fall", HOL: "Holiday" };
+function seasonOfPo(po) {
+  const m = String(po || "").match(/\bAMB,\s*([A-Z]{3})(\d{2})\b(.*)$/i);
+  if (!m) return null;
+  const code = m[1].toUpperCase() + m[2];
+  return { code, label: `${SEASON_NAMES[m[1].toUpperCase()] || m[1].toUpperCase()} 20${m[2]}`, test: /TEST/i.test(m[3] || ""),
+           sort: Number(m[2]) * 10 + ({ SPR: 1, SUM: 2, FAL: 3, HOL: 4 }[m[1].toUpperCase()] || 0) };
+}
+const histCache = new Map();
+async function allOrders(cid) {
+  const out = []; let last = null;
+  for (let page = 0; page < 20; page++) {
+    const pag = { page_size: 1000 }; if (last) pag.last_id = String(last);
+    const r = await fetch(AM_BASE + "orders/?" + qs({ ...auth(), parameters: [{ field: "customer_id", operator: "=", value: cid }], pagination: pag }),
+      { headers: { "User-Agent": UA, Accept: "application/json" } });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(`AM GET orders failed (${r.status})`);
+    out.push(...(j.response || []));
+    last = j.meta?.pagination?.last_id;
+    if (!last) break;
+  }
+  return out.filter(o => String(o.customer_id) === cid);
+}
+async function history(me) {
+  const hit = histCache.get(me.po);
+  if (hit && Date.now() - hit.at < 60000) return hit.data;
+  const cur = seasonOfPo(me.po);
+  const rows = await allOrders(await customerId(me.amc));
+  const seasons = new Map();
+  for (const o of rows) {
+    const s = seasonOfPo(o.customer_po); if (!s) continue;
+    if (s.test !== !!me.t) continue;                       // test link sees test orders only, ambassadors never see tests
+    const cancelled = String(o.credit_status || "").toLowerCase() === "cancelled";
+    const items = (o.order_items || []).map(it => {
+      const qty = cancelled ? 0 : Number(it.qty || 0) - Number(it.qty_cxl || 0);
+      return { style: it.style_number || "", desc: it.description || "", color: it.attr_2 || "", size: it.size || "", qty, retail: Number(it.unit_price || 0) };
+    }).filter(it => it.qty > 0);
+    if (!items.length) continue;
+    if (!seasons.has(s.code)) seasons.set(s.code, { ...s, allowance: s.code === cur?.code ? Number(me.a) : (me.pa || {})[s.code] ?? null, orders: [] });
+    seasons.get(s.code).orders.push({ amOrderId: String(o.order_id), date: o.date || "", items,
+      units: items.reduce((t, i) => t + i.qty, 0), retail: items.reduce((t, i) => t + i.qty * i.retail, 0) });
+  }
+  if (cur && !seasons.has(cur.code)) seasons.set(cur.code, { ...cur, allowance: Number(me.a), orders: [] });
+  const list = [...seasons.values()].map(s => ({ code: s.code, label: s.label, current: s.code === cur?.code, allowance: s.allowance,
+    spent: Math.round(s.orders.reduce((t, o) => t + o.retail, 0) * 100) / 100, units: s.orders.reduce((t, o) => t + o.units, 0),
+    orders: s.orders.sort((a, b) => Number(b.amOrderId) - Number(a.amOrderId)), sort: s.sort })).sort((a, b) => b.sort - a.sort);
+  const data = { name: me.n, seasons: list };
+  histCache.set(me.po, { at: Date.now(), data });
+  return data;
+}
+
 /* ---------- order ---------- */
 const seen = new Map(); // orderId -> result (stops double submits)
 async function handleOrder(input) {
@@ -212,7 +264,7 @@ async function handleOrder(input) {
   const units = lines.reduce((t, l) => t + l.qty, 0);
   if (!recent.has(me.po)) recent.set(me.po, []);
   recent.get(me.po).push({ amOrderId: String(amOrderId || orderId), date: new Date().toLocaleDateString("en-US"), retail, units });
-  spentCache.delete(me.po);
+  spentCache.delete(me.po); histCache.delete(me.po);
   const out = { ok: true, orderId, amOrderId, spent: Math.round(total * 100) / 100 };
   if (orderId) seen.set(orderId, out);
   console.log(JSON.stringify({ event: "order_created", orderId, amOrderId }));
@@ -247,6 +299,18 @@ http.createServer(async (req, res) => {
         return send(res, 200, { ok: true, ...(await seasonSpend(me)) });
       } catch (e) {
         console.error(JSON.stringify({ event: "spent_error", error: e.message }));
+        return send(res, e.message === "bad_code" || e.code === "ENOENT" ? 403 : 502, { ok: false });
+      }
+    }
+    if (req.method === "POST" && url.pathname === "/api/history") {
+      if (!AM_TOKEN) return send(res, 503, { ok: false });
+      let raw = ""; for await (const c of req) { raw += c; if (raw.length > 2000) return send(res, 413, { ok: false }); }
+      try {
+        const me = unlock(String(JSON.parse(raw).code || "").toUpperCase());
+        if (!me.amc) return send(res, 200, { ok: true, name: me.n, seasons: [] });
+        return send(res, 200, { ok: true, ...(await history(me)) });
+      } catch (e) {
+        console.error(JSON.stringify({ event: "history_error", error: e.message }));
         return send(res, e.message === "bad_code" || e.code === "ENOENT" ? 403 : 502, { ok: false });
       }
     }
