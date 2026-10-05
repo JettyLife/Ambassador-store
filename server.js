@@ -67,8 +67,8 @@ function qs(obj, prefix) {
   }
   return out.filter(Boolean).join("&");
 }
-async function amGet(endpoint, params = []) {
-  const body = { ...auth() };
+async function amGet(endpoint, params = [], extra = {}) {
+  const body = { ...auth(), ...extra };
   if (params.length) body.parameters = params;
   const r = await fetch(AM_BASE + endpoint + "?" + qs(body), { headers: { "User-Agent": UA, Accept: "application/json" } });
   const j = await r.json().catch(() => ({}));
@@ -123,6 +123,36 @@ async function skuIds(upcs) {
   return Object.fromEntries(upcs.map(u => [u, cache.skus.get(u)]));
 }
 
+/* ---------- season-to-date spend (read back from AM, so edits/cancels in AM count) ---------- */
+// An ambassador's season orders = their AM customer + their season PO (e.g. "Werner AMB, SUM27").
+// A new season gets a new PO code, so the total starts at $0 automatically.
+const recent = new Map();     // po -> [{amOrderId, retail, units, at}] created since this server started (covers AM lag)
+const spentCache = new Map(); // po -> {at, data}
+function orderRetail(o) {
+  if (String(o.credit_status || "").toLowerCase() === "cancelled") return { retail: 0, units: 0 };
+  const items = Array.isArray(o.order_items) ? o.order_items : [];
+  if (!items.length) return { retail: Number(o.amount_subtotal || 0), units: Number(o.qty || 0) - Number(o.qty_cxl || 0) };
+  let retail = 0, units = 0;
+  for (const it of items) { const q = Number(it.qty || 0) - Number(it.qty_cxl || 0); units += q; retail += q * Number(it.unit_price || 0); }
+  return { retail, units };
+}
+async function seasonSpend(me, fresh = false) {
+  const hit = spentCache.get(me.po);
+  if (!fresh && hit && Date.now() - hit.at < 60000) return hit.data;
+  const cid = await customerId(me.amc);
+  const rows = await amGet("orders/", [
+    { field: "customer_id", operator: "=", value: cid, include_type: "AND" },
+    { field: "customer_po", operator: "=", value: me.po, include_type: "AND" },
+  ], { pagination: { page_size: 1000 } });
+  const orders = rows.filter(o => String(o.customer_id) === cid && String(o.customer_po || "").trim() === me.po)
+    .map(o => ({ amOrderId: String(o.order_id), date: o.date || "", ...orderRetail(o) }))
+    .filter(o => o.units > 0);
+  for (const r of recent.get(me.po) || []) if (!orders.some(o => o.amOrderId === String(r.amOrderId))) orders.push(r);
+  const data = { spent: Math.round(orders.reduce((t, o) => t + o.retail, 0) * 100) / 100, orders };
+  spentCache.set(me.po, { at: Date.now(), data });
+  return data;
+}
+
 /* ---------- order ---------- */
 const seen = new Map(); // orderId -> result (stops double submits)
 async function handleOrder(input) {
@@ -163,8 +193,11 @@ async function handleOrder(input) {
   } else throw Object.assign(new Error("Choose pickup or delivery."), { status: 400 });
 
   const retail = lines.reduce((t, l) => t + l.qty * CATALOG[l.upc].p, 0);
+  let before = null;
+  try { before = (await seasonSpend(me, true)).spent; } catch (e) { console.error(JSON.stringify({ event: "spend_lookup_failed", error: e.message })); }
+  const total = (before || 0) + retail;
   header.notes = [`Ambassador store order ${orderId} – ${me.n}${me.t ? " (TEST)" : ""}`, fulfil,
-    `Retail value $${retail.toFixed(2)} of $${Number(me.a).toFixed(2)} allowance${retail > me.a ? ` (OVER by $${(retail - me.a).toFixed(2)})` : ""}`,
+    `This order: $${retail.toFixed(2)} retail` + (before !== null ? `. Season total: $${total.toFixed(2)} of $${Number(me.a).toFixed(2)} allowance${total > me.a ? ` (OVER by $${(total - me.a).toFixed(2)})` : ""}` : ` (allowance $${Number(me.a).toFixed(2)})`),
     notes ? `Ambassador notes: ${notes}` : ""].filter(Boolean).join("\n");
 
   const ids = await skuIds(lines.map(l => l.upc));
@@ -176,7 +209,11 @@ async function handleOrder(input) {
 
   const res = await amPost("orders/", payload);
   const amOrderId = (Array.isArray(res) ? res[0] : res)?.order_id || null;
-  const out = { ok: true, orderId, amOrderId };
+  const units = lines.reduce((t, l) => t + l.qty, 0);
+  if (!recent.has(me.po)) recent.set(me.po, []);
+  recent.get(me.po).push({ amOrderId: String(amOrderId || orderId), date: new Date().toLocaleDateString("en-US"), retail, units });
+  spentCache.delete(me.po);
+  const out = { ok: true, orderId, amOrderId, spent: Math.round(total * 100) / 100 };
   if (orderId) seen.set(orderId, out);
   console.log(JSON.stringify({ event: "order_created", orderId, amOrderId }));
   return out;
@@ -199,6 +236,18 @@ http.createServer(async (req, res) => {
       catch (e) {
         console.error(JSON.stringify({ event: "order_error", error: e.message }));
         return send(res, e.status || (e.message === "bad_code" || e.code === "ENOENT" ? 403 : 502), { ok: false, error: e.status ? e.message : "We couldn't send your order to our system." });
+      }
+    }
+    if (req.method === "POST" && url.pathname === "/api/spent") {
+      if (!AM_TOKEN) return send(res, 503, { ok: false });
+      let raw = ""; for await (const c of req) { raw += c; if (raw.length > 2000) return send(res, 413, { ok: false }); }
+      try {
+        const me = unlock(String(JSON.parse(raw).code || "").toUpperCase());
+        if (!me.amc) return send(res, 200, { ok: true, spent: 0, orders: [] });
+        return send(res, 200, { ok: true, ...(await seasonSpend(me)) });
+      } catch (e) {
+        console.error(JSON.stringify({ event: "spent_error", error: e.message }));
+        return send(res, e.message === "bad_code" || e.code === "ENOENT" ? 403 : 502, { ok: false });
       }
     }
     if (url.pathname === "/api/health") {

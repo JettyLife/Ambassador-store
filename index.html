@@ -302,6 +302,12 @@ body::before{content:"";position:fixed;inset:0;z-index:-1;background:var(--slate
 /* the wordmark wrapper is a span: undo the generic .brand span label styling */
 .brand span.wm{color:inherit;margin-top:0;font-size:inherit;letter-spacing:normal;text-transform:none}
 header.top .band .brand span.wm b{color:#ffffff}
+.meter{position:relative}
+.meter i{position:absolute;top:0;bottom:0;left:0;border-radius:0}
+.meter i.used{background:var(--slate)}
+.meter i:not(.used){background:#8fa3aa}
+.meter.over i:not(.used){background:var(--warn)}
+.meter{border-radius:999px;overflow:hidden}
 </style></head><body>
 <header class="top">
   <div class="band">
@@ -323,7 +329,7 @@ header.top .band .brand span.wm b{color:#ffffff}
   </div>
   <div class="wrap allow">
     <span class="lbl">Your allowance</span>
-    <div class="meter" id="meter" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Allowance used"><i id="meterFill"></i></div>
+    <div class="meter" id="meter" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Allowance used"><i id="meterUsed" class="used"></i><i id="meterFill"></i></div>
     <span class="nums" id="nums"></span>
   </div>
   <div class="toolsbar">
@@ -428,9 +434,21 @@ function totals(){
   for (const [upc,q] of Object.entries(S.cart)) { const r=BY_UPC[upc]; if(!r||!q) continue; units+=q; value+=q*r.p.p; }
   return { units, value };
 }
+// Season-to-date spend comes from AM via the server; the cart adds on top of it.
 function meterHTML(t, a){
-  const over = t.value > a, pct = a ? Math.min(100, t.value/a*100) : 0;
-  return { over, pct };
+  const used = S.spent || 0, total = used + t.value;
+  const over = total > a, usedPct = a ? Math.min(100, used/a*100) : 0, pct = a ? Math.min(100, total/a*100) : 0;
+  return { over, pct, usedPct, used, total, left: a - total, cartPct: Math.max(0, pct - usedPct) };
+}
+function meterBar(m){ return `<div class="meter${m.over?" over":""}"><i class="used" style="width:${m.usedPct}%"></i><i style="left:${m.usedPct}%;width:${m.cartPct}%"></i></div>`; }
+async function loadSpent(){
+  try {
+    const r = await fetch("/api/spent", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ code: S.code }) });
+    const j = await r.json();
+    if (r.ok && j.ok) { S.spent = j.spent; S.spentOrders = j.orders || []; S.spentKnown = true; }
+  } catch (e) {}
+  renderHeader();
+  if (!$("drawer").hidden) renderCart();
 }
 function renderHeader(){
   const lbl = CONFIG.season + " Ambassador Store";
@@ -441,16 +459,21 @@ function renderHeader(){
   $("whoAv").textContent = initials(S.me.n);
   const t = totals(), a = S.me.a, m = meterHTML(t, a);
   $("cartCt").textContent = t.units;
-  $("meterFill").style.width = m.pct + "%";
+  $("meterUsed").style.width = m.usedPct + "%";
+  $("meterFill").style.left = m.usedPct + "%";
+  $("meterFill").style.width = m.cartPct + "%";
   $("meter").classList.toggle("over", m.over);
   $("meter").setAttribute("aria-valuenow", Math.round(m.pct));
-  $("nums").innerHTML = `<b>${money(t.value)}</b> of ${money(a)} retail` + (m.over
-      ? `<span class="left over">${money(t.value-a)} over</span>`
-      : `<span class="left">${money(a - t.value)} left</span>`)
+  $("nums").innerHTML = (m.used ? `<b>${money(m.used)}</b> ordered` + (t.value ? ` + <b>${money(t.value)}</b> in cart` : "") : `<b>${money(t.value)}</b>${t.value ? " in cart" : ""}`)
+    + ` of ${money(a)}` + (m.over
+      ? `<span class="left over">${money(-m.left)} over</span>`
+      : `<span class="left">${money(m.left)} left</span>`)
     + (CONFIG.deadline ? `<span class="left">· Order by ${esc(CONFIG.deadline)}</span>` : "");
-  const placed = store.get(K("placed"));
-  $("placedBanner").hidden = !placed;
-  if (placed) $("placedBanner").innerHTML = `<b>Order ${esc(placed.id)} placed</b> on ${new Date(placed.at).toLocaleDateString("en-US",{month:"short",day:"numeric"})} for ${money(placed.value)} retail. Need to change something? Email <span style="user-select:all">${esc(CONFIG.contact)}</span>, or build a new cart and place it as a revision.`;
+  const ords = S.spentOrders || [];
+  $("placedBanner").hidden = !ords.length;
+  if (ords.length) $("placedBanner").innerHTML = `<b>You've placed ${ords.length} order${ords.length>1?"s":""} this season</b> (${money(m.used)} retail): `
+    + ords.map(o => `${esc(o.date || "")} · ${o.units} units · ${money(o.retail)}`).join("; ")
+    + `. You can place another order with what's left. Need to change an order? Email <span style="user-select:all">${esc(CONFIG.contact)}</span>.`;
 }
 
 /* ===== Catalog ===== */
@@ -637,7 +660,7 @@ function orderText(id){
   const t = totals(), a = S.me.a, rows = [];
   cartGroups().forEach(g => g.lines.forEach(l => rows.push(`${l.q} x ${g.p.s} ${l.size} | ${g.p.d} - ${g.p.c} | UPC ${l.upc}`)));
   return [ id ? `Order: ${id}` : null, `Ambassador: ${S.me.n}`, `Store: ${CONFIG.season} Ambassador Store`, `Units: ${t.units}`,
-    `Retail total: ${money(t.value)} (allowance ${money(a)}${t.value>a?`, over by ${money(t.value-a)}`:""})`,
+    `Retail total: ${money(t.value)} (already ordered ${money(S.spent||0)}, allowance ${money(a)})`,
     S.notes ? `Notes: ${S.notes}` : null, ``, `Fulfillment:`, fulfillText(), ``, ...rows ].filter(x => x!==null).join("\n");
 }
 function newOrderId(){
@@ -669,8 +692,10 @@ function renderCart(){
     $("dTitle").textContent = "Checkout";
     body.innerHTML = `<form class="review" id="shipForm" style="padding-top:12px" novalidate>
       <dl><dt>Name</dt><dd>${esc(S.me.n)}</dd><dt>Items</dt><dd>${t.units} units, ${groups.length} styles</dd>
-      <dt>Retail value</dt><dd>${money(t.value)} of ${money(a)}</dd></dl>
-      ${m.over?`<div class="note">This order is ${money(t.value-a)} over your allowance. You can still place it. We'll review it before it's approved.</div>`:""}
+      <dt>This order</dt><dd>${money(t.value)} retail</dd>
+      ${m.used ? `<dt>Already ordered</dt><dd>${money(m.used)}</dd>` : ""}
+      <dt>Season total</dt><dd>${money(m.total)} of ${money(a)}</dd></dl>
+      ${m.over?`<div class="note">This puts you ${money(-m.left)} over your allowance. You can still place it. We'll review it before it's approved.</div>`:""}
       <fieldset class="method"><legend class="fl">How do you want to get your order?</legend>
       ${Object.entries(METHODS).map(([k,m]) => `<label class="mopt${S.method===k?" on":""}"><input type="radio" name="method" id="m-${k}" value="${k}"${S.method===k?" checked":""}>
         <span><b>${esc(m.label)}</b>${m.addr?`<small>${esc(m.addr)}</small>`:`<small>Shipped to an address you enter</small>`}</span></label>`).join("")}
@@ -706,8 +731,8 @@ function renderCart(){
       <div class="rt">${money(u*g.p.p)}<div class="sub">${u} ${u===1?"unit":"units"}</div></div></div>`;
   }).join("");
   foot.innerHTML = `<div class="tot"><span>${t.units} units · retail value</span><b>${money(t.value)}</b></div>
-    <div class="meter${m.over?" over":""}"><i style="width:${m.pct}%"></i></div>
-    <div class="tot" style="font-size:13px;color:var(--muted)"><span>Allowance ${money(a)}</span><span>${m.over?`<span style="color:var(--warn);font-weight:600">${money(t.value-a)} over</span>`:`${money(a-t.value)} left`}</span></div>
+    ${meterBar(m)}
+    <div class="tot" style="font-size:13px;color:var(--muted)"><span>${m.used ? `${money(m.used)} already ordered · ` : ""}Allowance ${money(a)}</span><span>${m.over?`<span style="color:var(--warn);font-weight:600">${money(-m.left)} over</span>`:`${money(m.left)} left`}</span></div>
     ${m.over?`<div class="note">You're over your allowance. You can still place this order. We'll review it before it's approved.</div>`:""}
     <button type="button" class="primary" id="toCheckout">Checkout</button>`;
 }
@@ -764,6 +789,9 @@ async function placeOrder(btn){
   }
   if (j.dryRun) { err.hidden = false; err.textContent = "Test mode: everything checked out, but no order was created in AM."; btn.disabled = false; btn.textContent = "Place order"; console.log(j.wouldSend); return; }
   store.set(K("placed"), { id, am: j.amOrderId || "", at: new Date().toISOString(), units: t.units, value: t.value });
+  S.spent = typeof j.spent === "number" ? j.spent : (S.spent || 0) + t.value;
+  S.spentOrders = (S.spentOrders || []).concat([{ amOrderId: j.amOrderId, date: new Date().toLocaleDateString("en-US"), units: t.units, retail: t.value }]);
+  setTimeout(loadSpent, 8000);
   S.cart = {}; store.set(K("cart"), {}); S.notes = ""; S.method = "";
   step = "done"; renderCart(); renderHeader();
 }
@@ -794,6 +822,7 @@ let tt; function toast(m){ const t=$("toast"); t.textContent=m; t.hidden=false; 
   if (!S.me) { $("whoNm").textContent = "—"; showGate(); return; }
   S.cart = store.get(K("cart")) || {};
   renderHeader(); renderChips(); renderGrid();
+  loadSpent();
   if (!store.get(K("sizesAsked"))) openSizes(true);
 })();
 window.addEventListener("hashchange", () => location.reload());
