@@ -184,7 +184,7 @@ async function handleOrder(input) {
 
 /* ---------- http ---------- */
 const TYPES = { ".html": "text/html; charset=utf-8", ".json": "application/json", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp", ".txt": "text/plain", ".css": "text/css", ".js": "text/javascript", ".svg": "image/svg+xml" };
-const PUBLIC = /^\/(index\.html|robots\.txt|a\/[0-9a-f]{20}\.json|img\/[^/]+\.(jpg|jpeg|png|webp))?$/i;
+const PUBLIC = /^\/(index\.html|robots\.txt|a\/[0-9a-f]{20}\.json|(img|brand)\/[^/]+\.(jpg|jpeg|png|webp))?$/i;
 function send(res, status, body, type = "application/json") {
   res.writeHead(status, { "Content-Type": type, "Cache-Control": "no-store", "X-Robots-Tag": "noindex" });
   res.end(typeof body === "string" || Buffer.isBuffer(body) ? body : JSON.stringify(body));

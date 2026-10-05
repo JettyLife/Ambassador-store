@@ -9,22 +9,17 @@
 
 /* Layout: sticky shop header + allowance strip, card grid of styles, slide-in cart drawer */
 :root{
-  --bg:#f3f6f7; --surface:#ffffff; --ink:#122633; --muted:#5d6f7a; --line:#d9e2e6;
-  --accent:#1f6f78; --accent-ink:#ffffff; --accent-soft:#e1efef; --tile:#e7edef;
-  --warn:#b4521e; --warn-soft:#fbe9df; --ok:#2d7a4b;
+  /* Jetty brand: slate #43575E with white and black. Single light theme on purpose. */
+  --bg:#ffffff; --surface:#ffffff; --ink:#0d0f10; --muted:#5b6b71; --line:#d7dfe1;
+  --accent:#43575E; --accent-ink:#ffffff; --accent-soft:#e8eef0; --tile:#eef2f3;
+  --slate:#43575E; --slate-deep:#33444a;
+  --warn:#b4521e; --warn-soft:#fbeee6; --ok:#2d7a4b;
   --f-display:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
   --f-body:"Figtree",system-ui,-apple-system,"Segoe UI",sans-serif;
   --f-mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
   --r:6px;
+  color-scheme:light;
 }
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
-  --bg:#0d1820; --surface:#14222c; --ink:#e6eef1; --muted:#93a6b0; --line:#253742;
-  --accent:#5fb6bd; --accent-ink:#0b1a20; --accent-soft:#183339; --tile:#1b2c37;
-  --warn:#f0925c; --warn-soft:#3a2216; --ok:#6cc690; color-scheme:dark}}
-:root[data-theme="dark"]{
-  --bg:#0d1820; --surface:#14222c; --ink:#e6eef1; --muted:#93a6b0; --line:#253742;
-  --accent:#5fb6bd; --accent-ink:#0b1a20; --accent-soft:#183339; --tile:#1b2c37;
-  --warn:#f0925c; --warn-soft:#3a2216; --ok:#6cc690; color-scheme:dark}
 *{box-sizing:border-box}
 body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.45}
 button,input,textarea{font:inherit;color:inherit}
@@ -233,35 +228,114 @@ fieldset.method legend{padding:0;margin-bottom:8px}
 .ph .dots i.on{opacity:1;background:var(--accent)}
 .ph.manual img.b{opacity:0!important}
 .ph.manual img.a{opacity:1!important}
+/* ===== Jetty brand layer ===== */
+body{background:var(--bg)}
+.topo{position:relative;isolation:isolate}
+/* header band: slate with white bathymetry lines */
+header.top{background:var(--surface);border-bottom:1px solid var(--line);box-shadow:0 2px 10px rgba(13,15,16,.06)}
+.band{position:relative;background:var(--slate);color:#fff;overflow:hidden}
+.band::before{content:"";position:absolute;inset:0;background:#fff;opacity:.13;
+  -webkit-mask:url(brand/topo.png) 0 0/900px auto repeat;mask:url(brand/topo.png) 0 0/900px auto repeat;pointer-events:none}
+.band .bar1{position:relative;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:16px;padding-block:14px}
+.brand{display:flex;flex-direction:column;line-height:1}
+.brand .wm{display:flex;align-items:center;gap:10px}
+.brand .wm b{font-family:var(--f-display);font-weight:700;font-size:30px;letter-spacing:.08em;text-transform:uppercase}
+.brand .coin{width:38px;height:38px;flex:none}
+.band .brand span#seasonLbl{color:rgba(255,255,255,.78);font-size:11px;letter-spacing:.16em;text-transform:uppercase;margin-top:5px}
+nav.dept{margin:0;justify-self:center;display:flex;gap:4px}
+.band nav.dept button{color:rgba(255,255,255,.75);font-size:20px;padding:8px 18px;border-radius:999px;background:none;border:1px solid transparent}
+.band nav.dept button:hover{color:#fff;border-color:rgba(255,255,255,.35)}
+.band nav.dept button[aria-pressed="true"]{background:#fff;color:var(--slate)}
+.actions{justify-self:end;display:flex;align-items:center;gap:8px}
+.band .who{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.25);color:#fff}
+.band .who small{color:rgba(255,255,255,.7)}
+.band .who .av{background:#fff;color:var(--slate)}
+.band .sizesbtn{background:transparent;color:#fff;border-color:rgba(255,255,255,.4)}
+.band .sizesbtn:hover{background:rgba(255,255,255,.12)}
+.band .cartbtn{background:#fff;color:var(--ink)}
+.band .cartbtn .ct{background:var(--slate);color:#fff}
+.band :focus-visible{outline-color:#fff}
+/* allowance + sticky tools */
+.allow{border-top:0;padding-block:10px}
+.toolsbar{border-top:1px solid var(--line);background:var(--surface)}
+.tools{padding-block:10px;display:flex;gap:10px;align-items:center}
+.chips{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;min-width:0;flex:1}
+.chips::-webkit-scrollbar{display:none}
+.chip{white-space:nowrap;background:var(--surface)}
+.chip[aria-pressed="true"]{border-color:var(--slate);background:var(--slate);color:#fff}
+.search{margin-left:auto;flex:none}
+.headline{padding-block:22px 14px}
+.headline h1{color:var(--ink)}
+/* main area: faint slate bathymetry wash behind the grid */
+main.wrap{position:relative}
+body::before{content:"";position:fixed;inset:0;z-index:-1;background:var(--slate);opacity:.045;
+  -webkit-mask:url(brand/topo.png) 0 0/1100px auto repeat;mask:url(brand/topo.png) 0 0/1100px auto repeat;pointer-events:none}
+.card{border-color:var(--line)}
+.card.has{border-color:var(--slate);box-shadow:0 0 0 1px var(--slate)}
+.addbtn{background:var(--slate)}
+.addbtn:hover{background:var(--slate-deep)}
+.szb[aria-pressed="true"]{border-color:var(--ink);background:var(--ink);color:#fff}
+.meter i{background:var(--slate)}
+.primary{background:var(--slate)}
+.okbox b{color:var(--slate)}
+/* gate / sizes screens get the pattern too */
+.modal{background:var(--bg)}
+.modal::before{content:"";position:fixed;inset:0;background:var(--slate);opacity:.06;
+  -webkit-mask:url(brand/topo.png) 0 0/1000px auto repeat;mask:url(brand/topo.png) 0 0/1000px auto repeat;pointer-events:none}
+.pick{position:relative}
+.pick .brand .wm b{font-size:42px;color:var(--ink)}
+.pick .brand .coin{width:50px;height:50px}
+.pick .brand span:not(.wm){color:var(--muted);margin-top:6px;font-size:12px;letter-spacing:.14em;text-transform:uppercase}
+/* phones */
+@media(max-width:760px){
+  .band .bar1{grid-template-columns:1fr auto;grid-template-areas:"brand actions" "nav nav";row-gap:10px;padding-block:12px}
+  .band .brand{grid-area:brand}.actions{grid-area:actions}nav.dept{grid-area:nav;justify-self:center;order:0;width:auto;flex:none}
+  .band .who{max-width:150px;padding:4px 10px 4px 4px}
+  .band .who small{display:none}
+  .brand .wm b{font-size:26px}.brand .coin{width:32px;height:32px}
+  .band nav.dept button{font-size:17px;padding:6px 16px}
+  .tools{flex-wrap:wrap}
+  .search{flex:1 1 100%;margin-left:0}
+}
+.band .brand .wm b{color:#fff}
+.actions > *{order:0 !important;margin-left:0 !important}
+/* the wordmark wrapper is a span: undo the generic .brand span label styling */
+.brand span.wm{color:inherit;margin-top:0;font-size:inherit;letter-spacing:normal;text-transform:none}
+header.top .band .brand span.wm b{color:#ffffff}
 </style></head><body>
 <header class="top">
-  <div class="wrap bar1">
-    <div class="brand"><b>Jetty</b><span id="seasonLbl">Ambassador Store</span></div>
-    <nav class="dept" id="dept">
-      <button type="button" data-d="mens" aria-pressed="true">Mens</button>
-      <button type="button" data-d="acc" aria-pressed="false">Accessories</button>
-    </nav>
-    <div class="spacer"></div>
-    <div class="who" id="who">
-      <span class="av" id="whoAv">·</span>
-      <span class="nm"><small>Ordering as</small><span id="whoNm">Loading…</span></span>
+  <div class="band">
+    <div class="wrap bar1">
+      <div class="brand"><span class="wm"><b>Jetty</b><img class="coin" src="brand/logo-white.png" alt="" width="40" height="40"></span><span id="seasonLbl">Ambassador Store</span></div>
+      <nav class="dept" id="dept" aria-label="Departments">
+        <button type="button" data-d="mens" aria-pressed="true">Mens</button>
+        <button type="button" data-d="acc" aria-pressed="false">Accessories</button>
+      </nav>
+      <div class="actions">
+        <div class="who" id="who">
+          <span class="av" id="whoAv">·</span>
+          <span class="nm"><small>Ordering as</small><span id="whoNm">Loading…</span></span>
+        </div>
+        <button type="button" class="sizesbtn" id="sizesBtn">My sizes</button>
+        <button type="button" class="cartbtn" id="cartBtn">Cart <span class="ct" id="cartCt">0</span></button>
+      </div>
     </div>
-    <button type="button" class="sizesbtn" id="sizesBtn">My sizes</button>
-    <button type="button" class="cartbtn" id="cartBtn">Cart <span class="ct" id="cartCt">0</span></button>
   </div>
   <div class="wrap allow">
     <span class="lbl">Your allowance</span>
     <div class="meter" id="meter" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Allowance used"><i id="meterFill"></i></div>
     <span class="nums" id="nums"></span>
   </div>
+  <div class="toolsbar">
+    <div class="wrap tools">
+      <div class="chips" id="chips"></div>
+      <label class="search"><span aria-hidden="true">⌕</span><input id="q" type="search" placeholder="Search styles" aria-label="Search styles"></label>
+    </div>
+  </div>
 </header>
 
 <main class="wrap">
   <div class="banner" id="placedBanner" hidden></div>
-  <div class="tools">
-    <div class="chips" id="chips"></div>
-    <label class="search"><span aria-hidden="true">⌕</span><input id="q" type="search" placeholder="Search styles" aria-label="Search styles"></label>
-  </div>
   <div class="headline"><h1 id="h1">Mens</h1><span id="countLbl"></span></div>
   <div class="grid" id="grid"></div>
 </main>
@@ -275,7 +349,7 @@ fieldset.method legend{padding:0;margin-bottom:8px}
 
 <div class="modal" id="gate" hidden>
   <div class="pick">
-    <div class="brand"><b>Jetty</b><span id="gateSeason">Ambassador Store</span></div>
+    <div class="brand"><span class="wm"><b>Jetty</b><img class="coin" src="brand/logo-slate.png" alt="" width="40" height="40"></span><span id="gateSeason">Ambassador Store</span></div>
     <h2 id="gateH">Use your personal link</h2>
     <p id="gateP">This store opens from the personal link in your invitation email. Open that email and tap the link to start your order.</p>
     <p class="hint" id="gateC"></p>
@@ -283,7 +357,7 @@ fieldset.method legend{padding:0;margin-bottom:8px}
 </div>
 <div class="modal" id="sizes" hidden>
   <div class="pick">
-    <div class="brand"><b>Jetty</b><span>Your sizes</span></div>
+    <div class="brand"><span class="wm"><b>Jetty</b><img class="coin" src="brand/logo-slate.png" alt="" width="40" height="40"></span><span>Your sizes</span></div>
     <h2 id="sizesH">What sizes do you wear?</h2>
     <p>We'll pick these sizes for you when you tap a product. You can still change the size on any item.</p>
     <div id="sizeRows"></div>
