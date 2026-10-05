@@ -33,6 +33,8 @@ function stateCode(v) {
 }
 const UA = "JettyAmbassadorStore/1.0 (+https://jettyambassador.up.railway.app)";
 
+// Per-season order settings. Update season.json each new season.
+const SEASON = JSON.parse(fs.readFileSync(path.join(ROOT, "season.json"), "utf8")); // {season, startDate: "MM/DD/YYYY"}
 const CATALOG = JSON.parse(fs.readFileSync(path.join(ROOT, "catalog.json"), "utf8")); // upc -> {s,size,p,d,c,a}
 
 const PICKUP = {
@@ -144,6 +146,7 @@ async function handleOrder(input) {
     [SOURCE_FIELD]: SOURCE_VALUE,
     pct_discount: "100",
     state: DEFAULT_STATE,
+    date_start: process.env.AM_START_DATE || SEASON.startDate,
   };
   let fulfil;
   if (PICKUP[method]) {
