@@ -484,6 +484,31 @@ body.noscroll{overflow:hidden}
 .pickbtn:hover{background:var(--slate-deep)}
 .pickbtn:disabled{opacity:.6}
 @media(max-width:520px){.ship{flex-wrap:wrap}.pickbtn{width:100%;margin-top:6px}}
+/* orders by season */
+.staffnav{border-top:1px solid var(--line)}
+.psum.five{grid-template-columns:repeat(5,1fr);margin-top:12px}
+.psum b span{font-size:16px;color:var(--muted);font-weight:500}
+.tblwrap{overflow-x:auto;margin-top:14px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r)}
+.stbl{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
+.stbl th{text-align:left;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600;padding:10px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+.stbl th button{all:unset;cursor:pointer}
+.stbl th button:hover{color:var(--ink)}
+.stbl td{padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+.stbl tr:last-child td{border-bottom:0}
+.stbl td small{color:var(--muted)}
+.stbl .o{color:var(--warn);font-weight:600;font-size:12px}
+.tname{all:unset;cursor:pointer;font-weight:600;color:var(--slate)}
+.tname:hover{text-decoration:underline}
+.tname:focus-visible{outline:2px solid var(--slate);outline-offset:2px}
+.pill{font-size:11px;font-weight:600;border-radius:999px;padding:3px 8px;letter-spacing:.03em}
+.pill.ok{background:#e4f1e9;color:var(--ok)}
+.pill.pend{background:var(--warn-soft);color:var(--warn)}
+.notord{margin-top:16px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:10px 14px}
+.notord summary{cursor:pointer;font-weight:600}
+.notord summary small{color:var(--muted);font-weight:400;margin-left:4px}
+.nolist{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:10px}
+.nolist .tname{font-weight:500}
+@media(max-width:700px){.psum.five{grid-template-columns:repeat(2,1fr)}}
 </style></head><body>
 <header class="top">
   <div class="band">
@@ -1060,6 +1085,44 @@ let ADM = { q: "", open: null, data: {} };
 const isStaff = () => !!(S.me && S.me.admin && Array.isArray(S.me.roster));
 let PTAB = "orders";
 const PTABS = [["orders","Past Orders"],["requests","Photo Gear Requests"],["upload","Upload Content"]];
+const STAFF_TABS = [["seasons","Orders by Season"]];
+let SEAS = { data: null, pick: null, sort: "n" };
+async function loadSeasons(fresh){
+  try {
+    const r = await fetch("/api/admin/seasons", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ code: S.code, fresh: !!fresh }) });
+    const j = await r.json(); SEAS.data = r.ok && j.ok ? j.seasons : { error: true };
+  } catch (e) { SEAS.data = { error: true }; }
+  if (Array.isArray(SEAS.data) && !SEAS.pick) SEAS.pick = (SEAS.data.find(s => s.current) || SEAS.data[0] || {}).code;
+  renderProfile();
+}
+function seasonsPanel(){
+  if (SEAS.data === null) { SEAS.data = "loading"; loadSeasons(); }
+  const head = `<div class="ambh"><div class="pwho"><span class="av big dark">≡</span><div><small>All ambassadors</small><h2>Orders by Season</h2>
+      <p class="hint">Who has ordered each season. Click a name to see their orders.</p></div></div>
+      <button type="button" class="alink" id="seasRefresh">Refresh</button></div>`;
+  if (SEAS.data === "loading") return head + `<p class="hint pload">Loading every ambassador's orders… this can take a few seconds.</p>`;
+  if (!Array.isArray(SEAS.data)) return head + `<p class="hint pload">Couldn't load orders from AM. Try Refresh.</p>`;
+  const s = SEAS.data.find(x => x.code === SEAS.pick) || SEAS.data[0];
+  if (!s) return head + `<p class="hint pload">No ambassador orders yet.</p>`;
+  const sorters = { n: (a,b) => a.n.localeCompare(b.n), retail: (a,b) => b.retail - a.retail, last: (a,b) => String(b.last).localeCompare(String(a.last)) };
+  const people = s.people.slice().sort(sorters[SEAS.sort] || sorters.n);
+  const t = s.totals;
+  return head + `<div class="chips rfilt">${SEAS.data.map(x => `<button type="button" class="chip" data-seas="${esc(x.code)}" aria-pressed="${x.code===s.code}">${esc(x.label)} <small>${x.totals.ambassadors}</small></button>`).join("")}</div>
+    <div class="psum five"><div><small>Ambassadors ordered</small><b>${t.ambassadors}<span>/${t.ambassadors + s.notOrdered.length}</span></b></div>
+      <div><small>Orders</small><b>${t.orders}</b></div><div><small>Units</small><b>${t.units}</b></div>
+      <div><small>Retail value</small><b>${money(t.retail)}</b></div><div><small>Pending</small><b>${t.pending}</b></div></div>
+    <div class="tblwrap"><table class="stbl"><thead><tr>
+      <th><button type="button" data-ssort="n">Ambassador${SEAS.sort==="n"?" ↓":""}</button></th><th>Orders</th><th>Units</th>
+      <th><button type="button" data-ssort="retail">Retail used${SEAS.sort==="retail"?" ↓":""}</button></th><th>Status</th>
+      <th><button type="button" data-ssort="last">Last order${SEAS.sort==="last"?" ↓":""}</button></th></tr></thead>
+      <tbody>${people.map(p => { const over = p.allowance && p.retail > p.allowance; return `<tr>
+        <td><button type="button" class="tname" data-amb="${esc(p.id)}">${esc(p.n)}</button></td><td>${p.orders}</td><td>${p.units}</td>
+        <td>${money(p.retail)}${p.allowance ? ` <small>of ${money(p.allowance)}</small>` : ""}${over ? ` <span class="o">over</span>` : ""}</td>
+        <td>${p.pending ? `<span class="pill pend">${p.pending} pending</span>` : `<span class="pill ok">Approved</span>`}</td><td>${esc(p.last)}</td></tr>`; }).join("")
+        || `<tr><td colspan="6" class="hint">No orders this season yet.</td></tr>`}</tbody></table></div>
+    ${s.notOrdered.length ? `<details class="notord"${s.current ? " open" : ""}><summary>Haven't ordered for ${esc(s.label)} <small>${s.notOrdered.length}</small></summary>
+      <div class="nolist">${s.notOrdered.map(r => `<button type="button" class="tname" data-amb="${esc(r.id)}">${esc(r.n)}</button>`).join("")}</div></details>` : ""}`;
+}
 async function pickedUp(btn){
   btn.disabled = true; btn.textContent = "Saving…";
   try {
@@ -1074,9 +1137,10 @@ function profileSidebar(){
   const openReq = staff && Array.isArray(REQ.all) ? REQ.all.filter(r => r.status === "Open").length : 0;
   const nav = `<nav class="pnav" aria-label="Profile">${PTABS.map(([k,l]) => `<button type="button" class="pnavb${!ADM.open && PTAB===k ? " on" : ""}" data-ptab="${k}">${l}${k==="requests" && openReq ? ` <small>${openReq} open</small>` : ""}${k==="upload" ? ` <small>Soon</small>` : ""}</button>`).join("")}</nav>`;
   if (!staff) return `<aside class="aside">${nav}</aside>`;
+  const snav = `<nav class="pnav staffnav" aria-label="Staff">${STAFF_TABS.map(([k,l]) => `<button type="button" class="pnavb${!ADM.open && PTAB===k ? " on" : ""}" data-ptab="${k}">${l}</button>`).join("")}</nav>`;
   const q = ADM.q.toLowerCase();
   const list = S.me.roster.filter(r => !q || (r.n + " " + r.e + " " + r.amc).toLowerCase().includes(q));
-  return `<aside class="aside">${nav}
+  return `<aside class="aside">${nav}${snav}
     <div class="asideh"><h3>Ambassadors <small>${S.me.roster.length}</small></h3>
       <label class="search"><span aria-hidden="true">⌕</span><input id="admQ" type="search" placeholder="Find an ambassador" value="${esc(ADM.q)}" aria-label="Find an ambassador"></label></div>
     <div class="alist">${list.map(r => `<button type="button" class="aname${ADM.open === r.id ? " on" : ""}" data-amb="${esc(r.id)}">
@@ -1207,6 +1271,7 @@ function renderProfile(){
   const main = ADM.open && staff ? ambPanel()
     : PTAB === "requests" ? (staff ? staffRequestsPanel() : requestsSection())
     : PTAB === "upload" ? uploadPanel()
+    : PTAB === "seasons" && staff ? seasonsPanel()
     : myPanel();
   body.classList.add("staffgrid");
   body.innerHTML = profileSidebar() + `<section class="pmain">${main}</section>`;
@@ -1229,6 +1294,9 @@ $("profBody").addEventListener("change", async e => {
 $("profBody").addEventListener("click", e => {
   if (e.target.id === "rq-open") { REQ.form = true; REQ.done = false; REQ.err = ""; renderProfile(); setTimeout(() => $("rq-location")?.focus(), 30); return; }
   if (e.target.id === "rq-cancel") { readDraft(); REQ.form = false; REQ.err = ""; renderProfile(); return; }
+  const sp = e.target.closest("[data-seas]"); if (sp) { SEAS.pick = sp.dataset.seas; renderProfile(); return; }
+  const ss = e.target.closest("[data-ssort]"); if (ss) { SEAS.sort = ss.dataset.ssort; renderProfile(); return; }
+  if (e.target.id === "seasRefresh") { SEAS.data = "loading"; renderProfile(); loadSeasons(true); return; }
   const pk = e.target.closest("[data-pickup]");
   if (pk) { pickedUp(pk); return; }
   const rf = e.target.closest("[data-rfilter]"); if (rf) { REQ.filter = rf.dataset.rfilter; renderProfile(); return; }

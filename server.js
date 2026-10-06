@@ -231,6 +231,73 @@ async function productImages(styles) {
   return Object.fromEntries([...new Set(styles)].map(s => [s, (imgCache.get(s) || {}).url || ""]));
 }
 
+/* ---------- staff: every ambassador's orders grouped by season ---------- */
+async function customerIdsFor(names) {
+  const need = [...new Set(names.filter(n => n && !cache.customers.has(n)))];
+  for (let i = 0; i < need.length; i += 40) {
+    const chunk = need.slice(i, i + 40);
+    const rows = await amGet("customers/", chunk.map(n => ({ field: "customer_name", operator: "=", value: n, include_type: "OR" })), { pagination: { page_size: 1000 } });
+    for (const n of chunk) {
+      const hits = rows.filter(r => String(r.customer_name || "").trim() === n.trim());
+      if (hits.length === 1) cache.customers.set(n, String(hits[0].customer_id));
+    }
+  }
+  return Object.fromEntries(names.map(n => [n, cache.customers.get(n) || null]));
+}
+async function ordersForCustomers(ids) {
+  const out = [];
+  for (let i = 0; i < ids.length; i += 30) {
+    const chunk = ids.slice(i, i + 30); let last = null;
+    for (let page = 0; page < 20; page++) {
+      const pag = { page_size: 1000 }; if (last) pag.last_id = String(last);
+      const r = await fetch(AM_BASE + "orders/?" + qs({ ...auth(), parameters: chunk.map(id => ({ field: "customer_id", operator: "=", value: id, include_type: "OR" })), pagination: pag }),
+        { headers: { "User-Agent": UA, Accept: "application/json" } });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(`AM GET orders failed (${r.status})`);
+      out.push(...(j.response || []));
+      last = j.meta?.pagination?.last_id; if (!last) break;
+    }
+  }
+  const want = new Set(ids), seenIds = new Set();
+  return out.filter(o => want.has(String(o.customer_id)) && !seenIds.has(String(o.order_id)) && seenIds.add(String(o.order_id)));
+}
+let seasonsCache = null;
+async function seasonOverview(roster, fresh) {
+  if (!fresh && seasonsCache && Date.now() - seasonsCache.at < 120000) return seasonsCache.data;
+  const ids = await customerIdsFor(roster.map(r => r.amc).filter(Boolean));
+  const byCust = new Map(); for (const r of roster) if (ids[r.amc]) byCust.set(ids[r.amc], [...(byCust.get(ids[r.amc]) || []), r]);
+  const orders = await ordersForCustomers([...byCust.keys()]);
+  const cur = seasonOfPo(roster[0]?.po);
+  const seasons = new Map();
+  for (const o of orders) {
+    const s = seasonOfPo(o.customer_po); if (!s || s.test) continue;
+    const cands = byCust.get(String(o.customer_id)) || [];
+    const last = String(o.customer_po).split(" AMB")[0].trim().toLowerCase();
+    const amb = cands.length === 1 ? cands[0] : cands.find(c => c.po.toLowerCase().startsWith(last + " amb")) || cands[0];
+    if (!amb) continue;
+    const { retail, units } = orderRetail(o);
+    if (units <= 0) continue;
+    if (!seasons.has(s.code)) seasons.set(s.code, { code: s.code, label: s.label, sort: s.sort, people: new Map() });
+    const ppl = seasons.get(s.code).people;
+    if (!ppl.has(amb.id)) ppl.set(amb.id, { id: amb.id, n: amb.n, allowance: s.code === cur?.code ? amb.a : (amb.pa || {})[s.code] ?? null, orders: 0, units: 0, retail: 0, pending: 0, last: "" });
+    const p = ppl.get(amb.id);
+    p.orders++; p.units += units; p.retail += retail;
+    if (String(o.credit_status || "").toLowerCase() === "pending") p.pending++;
+    if (String(o.date || "") > p.last) p.last = String(o.date || "");
+  }
+  if (cur && !seasons.has(cur.code)) seasons.set(cur.code, { code: cur.code, label: cur.label, sort: cur.sort, people: new Map() });
+  const data = [...seasons.values()].sort((a, b) => b.sort - a.sort).map(s => {
+    const people = [...s.people.values()].map(p => ({ ...p, retail: Math.round(p.retail * 100) / 100 })).sort((a, b) => a.n.localeCompare(b.n));
+    const orderedIds = new Set(people.map(p => p.id));
+    return { code: s.code, label: s.label, current: s.code === cur?.code, people,
+      notOrdered: roster.filter(r => !orderedIds.has(r.id)).map(r => ({ id: r.id, n: r.n, allowance: s.code === cur?.code ? r.a : (r.pa || {})[s.code] ?? null })),
+      totals: { ambassadors: people.length, orders: people.reduce((t, p) => t + p.orders, 0), units: people.reduce((t, p) => t + p.units, 0),
+                retail: Math.round(people.reduce((t, p) => t + p.retail, 0) * 100) / 100, pending: people.reduce((t, p) => t + p.pending, 0) } };
+  });
+  seasonsCache = { at: Date.now(), data };
+  return data;
+}
+
 /* ---------- shipping / tracking ---------- */
 // Finds tracking numbers on an order's shipments. Field names are matched loosely (anything containing "tracking")
 // so it works whether AM stores them on the shipment or on its boxes/packages.
@@ -445,7 +512,7 @@ async function handleOrder(input) {
   const units = lines.reduce((t, l) => t + l.qty, 0);
   if (!recent.has(me.po)) recent.set(me.po, []);
   recent.get(me.po).push({ amOrderId: String(amOrderId || orderId), date: new Date().toLocaleDateString("en-US"), retail, units });
-  spentCache.delete(me.po); histCache.delete(me.po);
+  spentCache.delete(me.po); histCache.delete(me.po); seasonsCache = null;
   const out = { ok: true, orderId, amOrderId, spent: Math.round(total * 100) / 100, pending: overAllowance };
   if (orderId) seen.set(orderId, out);
   console.log(JSON.stringify({ event: "order_created", orderId, amOrderId, creditStatus: header.credit_status }));
@@ -539,6 +606,14 @@ http.createServer(async (req, res) => {
         console.error(JSON.stringify({ event: "request_error", error: e.message }));
         return send(res, e.message === "bad_code" || e.code === "ENOENT" ? 403 : 500, { ok: false, error: "Something went wrong. Try again." });
       }
+    }
+    if (req.method === "POST" && url.pathname === "/api/admin/seasons") {
+      let raw = ""; for await (const c of req) { raw += c; if (raw.length > 2000) return send(res, 413, { ok: false }); }
+      try {
+        const body = JSON.parse(raw), me = unlock(String(body.code || "").toUpperCase());
+        if (!me.admin || !Array.isArray(me.roster)) return send(res, 403, { ok: false });
+        return send(res, 200, { ok: true, seasons: await seasonOverview(me.roster, !!body.fresh) });
+      } catch (e) { console.error(JSON.stringify({ event: "seasons_error", error: e.message })); return send(res, 502, { ok: false }); }
     }
     if (req.method === "POST" && url.pathname === "/api/pickup") {
       let raw = ""; for await (const c of req) { raw += c; if (raw.length > 2000) return send(res, 413, { ok: false }); }
