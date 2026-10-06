@@ -509,6 +509,24 @@ body.noscroll{overflow:hidden}
 .nolist{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:10px}
 .nolist .tname{font-weight:500}
 @media(max-width:700px){.psum.five{grid-template-columns:repeat(2,1fr)}}
+/* two-column ordered / not ordered */
+.twocol{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px;align-items:start}
+.ocol{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.ocol .ocolh{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;padding:12px 14px;border-bottom:1px solid var(--line);background:var(--accent-soft)}
+.ocol.not .ocolh{background:var(--tile)}
+.ocolh h4{margin:0;font-family:var(--f-display);font-size:20px;text-transform:uppercase;letter-spacing:.02em}
+.ocolh h4 small{font-family:var(--f-body);font-size:13px;color:var(--muted);letter-spacing:0;margin-left:4px}
+.osort{font-size:12px;color:var(--muted);display:flex;gap:4px;align-items:center}
+.osort button{all:unset;cursor:pointer;padding:2px 8px;border-radius:999px;border:1px solid var(--line);background:var(--surface)}
+.osort button[aria-pressed="true"]{background:var(--slate);color:#fff;border-color:var(--slate)}
+.olist{list-style:none;margin:0;padding:4px 0;max-height:640px;overflow:auto}
+.olist li{display:flex;flex-wrap:wrap;align-items:center;gap:2px 8px;padding:8px 14px;border-bottom:1px solid var(--line)}
+.olist li:last-child{border-bottom:0}
+.olist .tname{flex:1 1 auto;min-width:0}
+.ometa{flex-basis:100%;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.ometa .o{color:var(--warn);font-weight:600}
+
+@media(max-width:760px){.twocol{grid-template-columns:1fr}}
 </style></head><body>
 <header class="top">
   <div class="band">
@@ -1111,17 +1129,16 @@ function seasonsPanel(){
     <div class="psum five"><div><small>Ambassadors ordered</small><b>${t.ambassadors}<span>/${t.ambassadors + s.notOrdered.length}</span></b></div>
       <div><small>Orders</small><b>${t.orders}</b></div><div><small>Units</small><b>${t.units}</b></div>
       <div><small>Retail value</small><b>${money(t.retail)}</b></div><div><small>Pending</small><b>${t.pending}</b></div></div>
-    <div class="tblwrap"><table class="stbl"><thead><tr>
-      <th><button type="button" data-ssort="n">Ambassador${SEAS.sort==="n"?" ↓":""}</button></th><th>Orders</th><th>Units</th>
-      <th><button type="button" data-ssort="retail">Retail used${SEAS.sort==="retail"?" ↓":""}</button></th><th>Status</th>
-      <th><button type="button" data-ssort="last">Last order${SEAS.sort==="last"?" ↓":""}</button></th></tr></thead>
-      <tbody>${people.map(p => { const over = p.allowance && p.retail > p.allowance; return `<tr>
-        <td><button type="button" class="tname" data-amb="${esc(p.id)}">${esc(p.n)}</button></td><td>${p.orders}</td><td>${p.units}</td>
-        <td>${money(p.retail)}${p.allowance ? ` <small>of ${money(p.allowance)}</small>` : ""}${over ? ` <span class="o">over</span>` : ""}</td>
-        <td>${p.pending ? `<span class="pill pend">${p.pending} pending</span>` : `<span class="pill ok">Approved</span>`}</td><td>${esc(p.last)}</td></tr>`; }).join("")
-        || `<tr><td colspan="6" class="hint">No orders this season yet.</td></tr>`}</tbody></table></div>
-    ${s.notOrdered.length ? `<details class="notord"${s.current ? " open" : ""}><summary>Haven't ordered for ${esc(s.label)} <small>${s.notOrdered.length}</small></summary>
-      <div class="nolist">${s.notOrdered.map(r => `<button type="button" class="tname" data-amb="${esc(r.id)}">${esc(r.n)}</button>`).join("")}</div></details>` : ""}`;
+    <div class="twocol">
+      <section class="ocol"><div class="ocolh"><h4>Ordered <small>${people.length}</small></h4>
+        <div class="osort">Sort: ${[["n","Name"],["retail","Retail"],["last","Latest"]].map(([k,l]) => `<button type="button" data-ssort="${k}" aria-pressed="${SEAS.sort===k}">${l}</button>`).join("")}</div></div>
+        <ul class="olist">${people.map(p => { const over = p.allowance && p.retail > p.allowance; return `<li>
+          <button type="button" class="tname" data-amb="${esc(p.id)}">${esc(p.n)}</button>
+          ${p.pending ? `<span class="pill pend">${p.pending} pending</span>` : ""}
+          <span class="ometa">${money(p.retail)}${p.allowance ? ` of ${money(p.allowance)}` : ""}${over ? ` <span class="o">over</span>` : ""} · ${p.orders} order${p.orders===1?"":"s"} · ${p.units} units${p.last ? ` · ${esc(p.last)}` : ""}</span></li>`; }).join("") || `<li class="hint">No orders yet.</li>`}</ul></section>
+      <section class="ocol not"><div class="ocolh"><h4>Haven't ordered <small>${s.notOrdered.length}</small></h4></div>
+        <ul class="olist">${s.notOrdered.map(r => `<li><button type="button" class="tname" data-amb="${esc(r.id)}">${esc(r.n)}</button>${r.allowance ? `<span class="ometa">${money(r.allowance)} allowance</span>` : ""}</li>`).join("") || `<li class="hint">Everyone has ordered.</li>`}</ul></section>
+    </div>`;
 }
 async function pickedUp(btn){
   btn.disabled = true; btn.textContent = "Saving…";
