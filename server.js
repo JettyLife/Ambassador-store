@@ -186,6 +186,40 @@ function seasonOfPo(po) {
 }
 const histCache = new Map();
 
+/* ---------- product photos for past-season styles (not in this season's catalog) ---------- */
+const CATALOG_IMG = (() => { try {
+  const html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
+  const data = JSON.parse(html.match(/const PRODUCTS = (\[.*?\]);\n/s)[1]);
+  return new Set(data.map(p => p.s));
+} catch (e) { return new Set(); } })();
+const imgCache = new Map(); // style -> {at, url}
+function findImageUrl(obj) {
+  if (!obj) return "";
+  if (typeof obj === "string") return /^https?:\/\/\S+\.(jpe?g|png|webp)(\?\S*)?$/i.test(obj.trim()) ? obj.trim() : "";
+  if (Array.isArray(obj)) { for (const v of obj) { const u = findImageUrl(v); if (u) return u; } return ""; }
+  if (typeof obj === "object") {
+    // prefer fields that look like the main picture
+    for (const k of Object.keys(obj).sort((a, b) => (/pic|image|photo/i.test(b) ? 1 : 0) - (/pic|image|photo/i.test(a) ? 1 : 0))) {
+      const u = findImageUrl(obj[k]); if (u) return u;
+    }
+  }
+  return "";
+}
+async function productImages(styles) {
+  const need = [...new Set(styles)].filter(s => s && !CATALOG_IMG.has(s) && !(imgCache.has(s) && Date.now() - imgCache.get(s).at < 864e5));
+  for (let i = 0; i < need.length; i += 40) {
+    const chunk = need.slice(i, i + 40);
+    let rows = [];
+    try { rows = await amGet("products/", chunk.map(st => ({ field: "style_number", operator: "=", value: st, include_type: "OR" })), { pagination: { page_size: 1000 } }); }
+    catch (e) { console.error(JSON.stringify({ event: "product_images_failed", error: e.message })); }
+    for (const st of chunk) {
+      const r = rows.find(x => String(x.style_number || "").trim() === st);
+      imgCache.set(st, { at: Date.now(), url: r ? findImageUrl(r) : "" });
+    }
+  }
+  return Object.fromEntries([...new Set(styles)].map(s => [s, (imgCache.get(s) || {}).url || ""]));
+}
+
 /* ---------- shipping / tracking ---------- */
 // Finds tracking numbers on an order's shipments. Field names are matched loosely (anything containing "tracking")
 // so it works whether AM stores them on the shipment or on its boxes/packages.
@@ -282,6 +316,11 @@ async function history(me) {
       units: items.reduce((t, i) => t + i.qty, 0), retail: items.reduce((t, i) => t + i.qty * i.retail, 0) });
   }
   if (cur && !seasons.has(cur.code)) seasons.set(cur.code, { ...cur, allowance: Number(me.a), orders: [] });
+  const pastStyles = [...seasons.values()].flatMap(s => s.orders.flatMap(o => o.items.map(i => i.style))).filter(st => !CATALOG_IMG.has(st));
+  if (pastStyles.length) {
+    const imgs = await productImages(pastStyles);
+    for (const s of seasons.values()) for (const o of s.orders) for (const it of o.items) if (imgs[it.style]) it.img = imgs[it.style];
+  }
   const shippedIds = [...seasons.values()].flatMap(s => s.orders).filter(o => o.ship.state !== "processing" && !o.ship.pickup).map(o => o.amOrderId);
   if (shippedIds.length) {
     const info = await shipmentsFor(shippedIds);

@@ -1047,7 +1047,7 @@ function seasonCard(s, ns){
     ${open ? `<div class="sbody">${s.orders.length ? s.orders.map(o => `
       <div class="pord"><div class="pordh"><b>Order ${esc(o.amOrderId)}</b><span>${esc(o.date)} · ${o.units} units · ${money(o.retail)}</span></div>
         ${shipBox(o, ns && ns.startsWith("a:") ? ns.slice(2) : "")}
-        ${o.items.map(it => { const th = thumbFor(it.style); return `<div class="pit">
+        ${o.items.map(it => { const th = thumbFor(it.style) || it.img || ""; return `<div class="pit">
           <div class="pth">${th ? `<img src="${esc(th)}" alt="" loading="lazy" onerror="this.remove()">` : ""}</div>
           <div class="pinfo"><b>${esc(it.desc || it.style)}</b><small>${esc((PRODUCTS.find(x => x.s === it.style) || {}).c || it.color)} · Size ${esc(it.size)} · <span class="code">${esc(it.style)}</span></small></div>
           <div class="pq">× ${it.qty}<small>${money(it.qty * it.retail)}</small></div></div>`; }).join("")}
