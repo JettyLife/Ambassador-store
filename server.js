@@ -185,6 +185,57 @@ function seasonOfPo(po) {
            sort: Number(m[2]) * 10 + ({ SPR: 1, SUM: 2, FAL: 3, HOL: 4 }[m[1].toUpperCase()] || 0) };
 }
 const histCache = new Map();
+
+/* ---------- shipping / tracking ---------- */
+// Finds tracking numbers on an order's shipments. Field names are matched loosely (anything containing "tracking")
+// so it works whether AM stores them on the shipment or on its boxes/packages.
+function carrierFor(num, hint) {
+  const n = String(num).replace(/\s+/g, ""), h = String(hint || "").toLowerCase();
+  if (/^1Z[0-9A-Z]{16}$/i.test(n) || h.includes("ups")) return { carrier: "UPS", url: `https://www.ups.com/track?tracknum=${encodeURIComponent(n)}` };
+  if (h.includes("fedex") || /^\d{12}$|^\d{15}$/.test(n)) return { carrier: "FedEx", url: `https://www.fedex.com/fedextrack/?trknbr=${encodeURIComponent(n)}` };
+  if (h.includes("usps") || /^(9[1-5]\d{18,24}|[A-Z]{2}\d{9}US)$/i.test(n)) return { carrier: "USPS", url: `https://tools.usps.com/go/TrackConfirmAction?tLabels=${encodeURIComponent(n)}` };
+  if (h.includes("dhl")) return { carrier: "DHL", url: `https://www.dhl.com/us-en/home/tracking.html?tracking-id=${encodeURIComponent(n)}` };
+  return { carrier: hint ? String(hint) : "", url: `https://www.google.com/search?q=${encodeURIComponent(n + " tracking")}` };
+}
+function findTracking(obj, hint, out = []) {
+  if (Array.isArray(obj)) { obj.forEach(o => findTracking(o, hint, out)); return out; }
+  if (!obj || typeof obj !== "object") return out;
+  const localHint = obj.ship_via || obj.carrier || obj.shipping_method || obj.service || hint || "";
+  for (const [k, v] of Object.entries(obj)) {
+    if (v && typeof v === "object") findTracking(v, localHint, out);
+    else if (/track/i.test(k) && !/url|link|status|date/i.test(k) && v && String(v).trim().length >= 8) {
+      for (const num of String(v).split(/[\s,;]+/).filter(x => x.length >= 8)) out.push({ number: num, ...carrierFor(num, localHint) });
+    }
+  }
+  return out;
+}
+const shipCache = new Map(); // order_id -> {at, data}
+async function shipmentsFor(orderIds) {
+  const need = orderIds.filter(id => { const c = shipCache.get(id); return !c || Date.now() - c.at > 10 * 60000; });
+  for (let i = 0; i < need.length; i += 25) {
+    const chunk = need.slice(i, i + 25);
+    let rows = [];
+    try { rows = await amGet("shipments/", chunk.map(id => ({ field: "order_id", operator: "=", value: id, include_type: "OR" })), { pagination: { page_size: 1000 } }); }
+    catch (e) { console.error(JSON.stringify({ event: "shipments_lookup_failed", error: e.message })); }
+    const by = new Map(chunk.map(id => [id, []]));
+    for (const r of rows) {
+      const ids = new Set([r.order_id, ...(Array.isArray(r.shipment_items) ? r.shipment_items.map(x => x.order_id) : [])].filter(Boolean).map(String));
+      for (const id of ids) if (by.has(id)) by.get(id).push(r);
+    }
+    for (const [id, list] of by) {
+      const seen = new Set(), tracking = findTracking(list).filter(t => !seen.has(t.number) && seen.add(t.number));
+      shipCache.set(id, { at: Date.now(), data: { tracking, shipDate: (list.find(r => r.date || r.ship_date) || {}).date || (list[0] || {}).ship_date || "" } });
+    }
+  }
+  return Object.fromEntries(orderIds.map(id => [id, (shipCache.get(id) || {}).data || { tracking: [] }]));
+}
+function shipStatus(o) {
+  const qty = Number(o.qty || 0) - Number(o.qty_cxl || 0), shipped = Number(o.qty_shipped || 0);
+  const pickup = /pickup/i.test(String(o.shipping_info || ""));
+  if (shipped <= 0) return { state: "processing", label: pickup ? "Not picked up yet" : "Not shipped yet", pickup };
+  if (shipped < qty) return { state: "partial", label: pickup ? "Partly picked up" : "Partly shipped", pickup };
+  return { state: "shipped", label: pickup ? "Picked up" : "Shipped", pickup };
+}
 async function allOrders(cid) {
   const out = []; let last = null;
   for (let page = 0; page < 20; page++) {
@@ -215,10 +266,16 @@ async function history(me) {
     }).filter(it => it.qty > 0);
     if (!items.length) continue;
     if (!seasons.has(s.code)) seasons.set(s.code, { ...s, allowance: s.code === cur?.code ? Number(me.a) : (me.pa || {})[s.code] ?? null, orders: [] });
-    seasons.get(s.code).orders.push({ amOrderId: String(o.order_id), date: o.date || "", items,
+    seasons.get(s.code).orders.push({ amOrderId: String(o.order_id), date: o.date || "", items, ship: shipStatus(o),
+      method: String(o.shipping_info || ""),
       units: items.reduce((t, i) => t + i.qty, 0), retail: items.reduce((t, i) => t + i.qty * i.retail, 0) });
   }
   if (cur && !seasons.has(cur.code)) seasons.set(cur.code, { ...cur, allowance: Number(me.a), orders: [] });
+  const shippedIds = [...seasons.values()].flatMap(s => s.orders).filter(o => o.ship.state !== "processing" && !o.ship.pickup).map(o => o.amOrderId);
+  if (shippedIds.length) {
+    const info = await shipmentsFor(shippedIds);
+    for (const s of seasons.values()) for (const o of s.orders) if (info[o.amOrderId]) { o.tracking = info[o.amOrderId].tracking; o.shipDate = info[o.amOrderId].shipDate; }
+  }
   const list = [...seasons.values()].map(s => ({ code: s.code, label: s.label, current: s.code === cur?.code, allowance: s.allowance,
     spent: Math.round(s.orders.reduce((t, o) => t + o.retail, 0) * 100) / 100, units: s.orders.reduce((t, o) => t + o.units, 0),
     orders: s.orders.sort((a, b) => Number(b.amOrderId) - Number(a.amOrderId)), sort: s.sort })).sort((a, b) => b.sort - a.sort);
@@ -411,6 +468,15 @@ http.createServer(async (req, res) => {
         console.error(JSON.stringify({ event: "request_error", error: e.message }));
         return send(res, e.message === "bad_code" || e.code === "ENOENT" ? 403 : 500, { ok: false, error: "Something went wrong. Try again." });
       }
+    }
+    if (req.method === "POST" && url.pathname === "/api/debug/shipments") {
+      let raw = ""; for await (const c of req) { raw += c; if (raw.length > 2000) return send(res, 413, { ok: false }); }
+      try {
+        const body = JSON.parse(raw), me = unlock(String(body.code || "").toUpperCase());
+        if (!me.admin) return send(res, 403, { ok: false });
+        const rows = await amGet("shipments/", [{ field: "order_id", operator: "=", value: String(body.order) }]);
+        return send(res, 200, { ok: true, count: rows.length, sample: rows.slice(0, 2), tracking: findTracking(rows) });
+      } catch (e) { return send(res, 502, { ok: false, error: e.message }); }
     }
     if (url.pathname === "/api/health") {
       const out = { ok: true, tokenSet: !!AM_TOKEN, dryRun: DRY_RUN, dataDir: DATA_DIR, persistentStorage: DATA_DIR === "/data", subdomain: AM_BASE.split("//")[1].split(".")[0] };

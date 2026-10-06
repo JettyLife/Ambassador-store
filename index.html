@@ -465,6 +465,18 @@ body.noscroll{overflow:hidden}
 .staffgrid .aside{width:auto}
 @media(max-width:860px){.pbody.staffgrid{grid-template-columns:1fr}.aside{max-height:none}.aside .alist{max-height:260px}
   .pnav{flex-direction:row;overflow-x:auto}.pnavb{white-space:nowrap}}
+/* shipping */
+.ship{display:flex;gap:10px;align-items:flex-start;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:9px 12px;margin:2px 0 4px}
+.sico{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:12px;flex:none;background:var(--tile);color:var(--muted)}
+.ship.st-shipped .sico{background:var(--ok);color:#fff}
+.ship.st-partial .sico{background:#8fa3aa;color:#fff}
+.stx{min-width:0;font-size:13.5px}
+.stx b{font-weight:600}
+.stx small{display:block;color:var(--muted);font-size:12px}
+.trk{display:flex;flex-wrap:wrap;gap:6px;margin-top:5px}
+.trk a{font-size:12.5px;color:var(--slate);text-decoration:none;border:1px solid var(--slate);border-radius:999px;padding:3px 10px}
+.trk a:hover{background:var(--slate);color:#fff}
+.trk .code{font-family:var(--f-mono);font-size:11.5px}
 </style></head><body>
 <header class="top">
   <div class="band">
@@ -1004,6 +1016,15 @@ async function loadProfile(){
   renderProfile();
 }
 const thumbFor = style => { const p = PRODUCTS.find(x => x.s === style); return p && p.imgs && p.imgs[0] || ""; };
+function shipBox(o){
+  const sh = o.ship || {}, tr = o.tracking || [];
+  const icon = sh.state === "shipped" ? "✓" : sh.state === "partial" ? "◐" : "○";
+  const where = sh.pickup ? esc(o.method) : "";
+  return `<div class="ship st-${esc(sh.state || "processing")}"><span class="sico" aria-hidden="true">${icon}</span>
+    <div class="stx"><b>${esc(sh.label || "Processing")}</b>${o.shipDate ? ` <small>${esc(o.shipDate)}</small>` : ""}${where ? `<small>${where}</small>` : ""}
+      ${tr.length ? `<div class="trk">${tr.map(t => `<a href="${esc(t.url)}" target="_blank" rel="noopener">${t.carrier ? esc(t.carrier) + " " : ""}<span class="code">${esc(t.number)}</span> ↗</a>`).join("")}</div>`
+        : (sh.state !== "processing" && !sh.pickup ? `<small>Tracking number not available yet.</small>` : "")}</div></div>`;
+}
 function seasonCard(s, ns){
   const key = (ns ? ns + "|" : "") + s.code;
   const a = s.allowance, pct = a ? Math.min(100, s.spent / a * 100) : 0, over = a && s.spent > a, open = profOpen === key;
@@ -1017,6 +1038,7 @@ function seasonCard(s, ns){
     </button>
     ${open ? `<div class="sbody">${s.orders.length ? s.orders.map(o => `
       <div class="pord"><div class="pordh"><b>Order ${esc(o.amOrderId)}</b><span>${esc(o.date)} · ${o.units} units · ${money(o.retail)}</span></div>
+        ${shipBox(o)}
         ${o.items.map(it => { const th = thumbFor(it.style); return `<div class="pit">
           <div class="pth">${th ? `<img src="${esc(th)}" alt="" loading="lazy" onerror="this.remove()">` : ""}</div>
           <div class="pinfo"><b>${esc(it.desc || it.style)}</b><small>${esc((PRODUCTS.find(x => x.s === it.style) || {}).c || it.color)} · Size ${esc(it.size)} · <span class="code">${esc(it.style)}</span></small></div>
