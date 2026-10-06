@@ -378,6 +378,38 @@ body.noscroll{overflow:hidden}
 .alink{font-size:12px;color:var(--slate);white-space:nowrap;text-decoration:none;border:1px solid var(--line);border-radius:999px;padding:4px 10px}
 .alink:hover{border-color:var(--slate)}
 .abody{border-top:1px solid var(--line);padding:12px;background:var(--tile);display:flex;flex-direction:column;gap:10px}
+/* staff layout: sidebar + main */
+.pbody.staffgrid{max-width:1200px;display:grid;grid-template-columns:300px minmax(0,1fr);gap:24px;align-items:start}
+.aside{position:sticky;top:calc(var(--pband-h,150px) + 12px);background:var(--surface);border:1px solid var(--line);border-radius:var(--r);display:flex;flex-direction:column;max-height:calc(100vh - var(--pband-h,150px) - 40px);overflow:hidden}
+.asideh{padding:12px 12px 8px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
+.asideh h3{margin:0;font-family:var(--f-display);font-size:20px;text-transform:uppercase;letter-spacing:.03em}
+.asideh h3 small{font-family:var(--f-body);font-size:12px;color:var(--muted);letter-spacing:0;margin-left:4px}
+.asideh .search{margin:0;width:100%}
+.asideh .search input{width:100%}
+.aself{all:unset;cursor:pointer;margin:8px 8px 0;padding:8px 10px;border-radius:var(--r);font-weight:600;font-size:14px;border:1px dashed var(--line)}
+.aself.on{background:var(--slate);color:#fff;border-color:var(--slate)}
+.aside .alist{overflow:auto;padding:6px 8px 10px;display:flex;flex-direction:column;gap:2px;margin:0}
+.aside .aname{all:unset;box-sizing:border-box;cursor:pointer;display:flex;align-items:center;gap:10px;padding:7px 8px;border-radius:var(--r);min-width:0}
+.aside .aname:hover{background:var(--tile)}
+.aside .aname.on{background:var(--accent-soft);box-shadow:inset 3px 0 0 var(--slate)}
+.aside .aname:focus-visible,.aself:focus-visible{outline:2px solid var(--slate);outline-offset:1px}
+.aside .aname .av{width:30px;height:30px;border-radius:50%;background:var(--slate);color:#fff;display:grid;place-items:center;font-size:11px;font-weight:600;flex:none}
+.atx{min-width:0}
+.atx b{display:block;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.atx small{display:block;font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pmain{min-width:0}
+.ambh{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;padding-bottom:16px;margin-bottom:6px;border-bottom:1px solid var(--line)}
+.ambh .pwho small{color:var(--muted);text-transform:uppercase;letter-spacing:.14em;font-size:11px}
+.ambh .pwho h2{margin:2px 0 4px;font-family:var(--f-display);font-size:30px;text-transform:uppercase;line-height:1}
+.ambh .hint{margin:0;font-size:12.5px}
+.ambh .code{font-family:var(--f-mono);font-size:11.5px}
+.av.big.dark{background:var(--slate);color:#fff}
+.alink{font-size:13px;color:var(--slate);white-space:nowrap;text-decoration:none;border:1px solid var(--slate);border-radius:999px;padding:6px 12px;font-weight:500}
+.alink:hover{background:var(--slate);color:#fff}
+@media(max-width:860px){
+  .pbody.staffgrid{grid-template-columns:1fr}
+  .aside{position:static;max-height:300px}
+}
 </style></head><body>
 <header class="top">
   <div class="band">
@@ -904,6 +936,7 @@ function openProfile(){
   $("profName").textContent = S.me.n; $("profAv").textContent = initials(S.me.n);
   $("profile").hidden = false; document.body.classList.add("noscroll");
   profOpen = null; renderProfile(); loadProfile();
+  requestAnimationFrame(() => { const h = document.querySelector(".pband")?.offsetHeight || 150; $("profile").style.setProperty("--pband-h", h + "px"); });
 }
 function closeProfile(){ $("profile").hidden = true; document.body.classList.remove("noscroll"); }
 async function loadProfile(){
@@ -936,24 +969,33 @@ function seasonCard(s, ns){
       </div>`).join("") : `<p class="hint">No orders yet this season.</p>`}</div>` : ""}
   </article>`;
 }
-/* Staff module: Jon (point of contact) and the test account see every ambassador */
+/* Staff (Jetty Admin): ambassador list in a left side panel; selecting one shows their seasons on the right */
 let ADM = { q: "", open: null, data: {} };
-function staffModule(){
-  if (!S.me.admin || !Array.isArray(S.me.roster)) return "";
+const isStaff = () => !!(S.me && S.me.admin && Array.isArray(S.me.roster));
+function staffSidebar(){
   const q = ADM.q.toLowerCase();
   const list = S.me.roster.filter(r => !q || (r.n + " " + r.e + " " + r.amc).toLowerCase().includes(q));
-  return `<section class="staff"><div class="staffh"><h3 class="psec">All ambassadors <small>${S.me.roster.length}</small></h3>
+  return `<aside class="aside">
+    <div class="asideh"><h3>Ambassadors <small>${S.me.roster.length}</small></h3>
       <label class="search"><span aria-hidden="true">⌕</span><input id="admQ" type="search" placeholder="Find an ambassador" value="${esc(ADM.q)}" aria-label="Find an ambassador"></label></div>
-    <div class="alist">${list.map(r => {
-      const open = ADM.open === r.id, d = ADM.data[r.id];
-      return `<div class="arow${open ? " open" : ""}">
-        <div class="arowh">
-          <button type="button" class="aname" data-amb="${esc(r.id)}" aria-expanded="${open}"><span class="av">${esc(initials(r.n))}</span><span><b>${esc(r.n)}</b><small>${money(r.a)} allowance · ${esc(r.amc || "No AM customer")}</small></span></button>
-          <a class="alink" href="/#${esc(r.code)}-V" target="_blank" rel="noopener">View store ↗</a>
-        </div>
-        ${open ? `<div class="abody">${!d ? `<p class="hint">Loading orders…</p>` : d.error ? `<p class="hint">Couldn't load orders. Try again.</p>`
-          : (d.seasons || []).length ? d.seasons.map(s => seasonCard(s, "a:" + r.id)).join("") : `<p class="hint">No orders yet.</p>`}</div>` : ""}
-      </div>`; }).join("") || `<p class="hint">No match.</p>`}</div></section>`;
+    <button type="button" class="aself${ADM.open ? "" : " on"}" data-amb="">My account</button>
+    <div class="alist">${list.map(r => `<button type="button" class="aname${ADM.open === r.id ? " on" : ""}" data-amb="${esc(r.id)}">
+        <span class="av">${esc(initials(r.n))}</span><span class="atx"><b>${esc(r.n)}</b><small>${money(r.a)} · ${esc(r.amc || "No AM customer")}</small></span></button>`).join("") || `<p class="hint">No match.</p>`}</div>
+  </aside>`;
+}
+function seasonsHTML(seasons, ns){
+  const lifetime = seasons.reduce((t, s) => t + s.spent, 0), orders = seasons.reduce((t, s) => t + s.orders.length, 0);
+  return `<div class="psum"><div><small>Seasons</small><b>${seasons.filter(s => s.orders.length).length}</b></div>
+      <div><small>Orders</small><b>${orders}</b></div><div><small>Total retail value</small><b>${money(lifetime)}</b></div></div>
+    <h3 class="psec">Seasons</h3>
+    <div class="scards">${seasons.map(s => seasonCard(s, ns)).join("") || `<p class="hint">No orders yet.</p>`}</div>`;
+}
+function ambPanel(){
+  const r = S.me.roster.find(x => x.id === ADM.open), d = ADM.data[r.id];
+  return `<div class="ambh"><div class="pwho"><span class="av big dark">${esc(initials(r.n))}</span><div><small>Ambassador</small><h2>${esc(r.n)}</h2>
+      <p class="hint">${esc(r.e)} · ${esc(r.amc || "No AM customer")} · PO <span class="code">${esc(r.po)}</span></p></div></div>
+      <a class="alink" href="/#${esc(r.code)}-V" target="_blank" rel="noopener">View their store ↗</a></div>
+    ${!d ? `<p class="hint pload">Loading orders…</p>` : d.error ? `<p class="hint pload">Couldn't load orders. Try again.</p>` : seasonsHTML(d.seasons || [], "a:" + r.id)}`;
 }
 async function loadAmb(id){
   try {
@@ -962,16 +1004,18 @@ async function loadAmb(id){
   } catch (e) { ADM.data[id] = { error: true }; }
   if (ADM.open === id) renderProfile();
 }
+function myPanel(){
+  if (!PROF) return `<p class="hint pload">Loading your orders…</p>`;
+  if (PROF.error) return `<p class="hint pload">We couldn't load your order history right now. Try again in a minute.</p>`;
+  return seasonsHTML(PROF.seasons || []);
+}
 function renderProfile(){
   const body = $("profBody");
-  if (!PROF) { body.innerHTML = `<p class="hint pload">Loading your orders…</p>` + staffModule(); return; }
-  if (PROF.error) { body.innerHTML = `<p class="hint pload">We couldn't load your order history right now. Try again in a minute.</p>` + staffModule(); return; }
-  const seasons = PROF.seasons || [];
-  const lifetime = seasons.reduce((t, s) => t + s.spent, 0), orders = seasons.reduce((t, s) => t + s.orders.length, 0);
-  body.innerHTML = `<div class="psum"><div><small>Seasons</small><b>${seasons.filter(s => s.orders.length).length}</b></div>
-      <div><small>Orders</small><b>${orders}</b></div><div><small>Total retail value</small><b>${money(lifetime)}</b></div></div>
-    <h3 class="psec">Your seasons</h3>
-    <div class="scards">${seasons.map(s => seasonCard(s)).join("") || `<p class="hint">No orders yet.</p>`}</div>` + staffModule();
+  if (!isStaff()) { body.classList.remove("staffgrid"); body.innerHTML = myPanel(); return; }
+  body.classList.add("staffgrid");
+  const keepScroll = body.querySelector(".alist")?.scrollTop || 0;
+  body.innerHTML = staffSidebar() + `<section class="pmain">${ADM.open ? ambPanel() : myPanel()}</section>`;
+  const l = body.querySelector(".alist"); if (l) l.scrollTop = keepScroll;
 }
 $("who").addEventListener("click", openProfile);
 $("profBack").addEventListener("click", closeProfile);
@@ -982,7 +1026,8 @@ $("profBody").addEventListener("input", e => {
 });
 $("profBody").addEventListener("click", e => {
   const am = e.target.closest("[data-amb]");
-  if (am) { const id = am.dataset.amb; ADM.open = ADM.open === id ? null : id; if (ADM.open && !ADM.data[id]) loadAmb(id); renderProfile(); return; }
+  if (am) { const id = am.dataset.amb || null; ADM.open = id; if (id && !ADM.data[id]) loadAmb(id); renderProfile();
+    if (matchMedia("(max-width:860px)").matches) document.querySelector(".pmain")?.scrollIntoView({ behavior: "smooth", block: "start" }); return; }
   const h = e.target.closest("[data-season]"); if (!h) return;
   profOpen = profOpen === h.dataset.season ? null : h.dataset.season; renderProfile();
 });
