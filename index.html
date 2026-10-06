@@ -447,6 +447,24 @@ body.noscroll{overflow:hidden}
 .rfilt small{opacity:.7;margin-left:2px}
 .aself small{font-weight:400;opacity:.8;margin-left:4px}
 @media(max-width:520px){.rdates{grid-template-columns:1fr}.rgear{grid-template-columns:1fr 1fr}}
+/* profile side menu */
+.pnav{display:flex;flex-direction:column;gap:2px;padding:8px}
+.pnavb{all:unset;box-sizing:border-box;cursor:pointer;padding:10px 12px;border-radius:var(--r);font-weight:600;font-size:14.5px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.pnavb:hover{background:var(--tile)}
+.pnavb.on{background:var(--slate);color:#fff}
+.pnavb small{font-weight:500;font-size:11px;border-radius:999px;padding:2px 8px;background:var(--accent-soft);color:var(--slate)}
+.pnavb.on small{background:rgba(255,255,255,.2);color:#fff}
+.pnavb:focus-visible{outline:2px solid var(--slate);outline-offset:1px}
+.aside .asideh{border-top:1px solid var(--line)}
+.pmain > .psec:first-child,.pmain > .rsec:first-child{margin-top:0}
+.rsec:first-child .psec{margin-top:0}
+.soon{background:var(--surface);border:1px dashed var(--line);border-radius:var(--r);padding:28px 22px;text-align:center;color:var(--muted)}
+.soon b{display:block;font-family:var(--f-display);font-size:24px;text-transform:uppercase;color:var(--ink);margin-bottom:6px}
+.soon p{margin:0}
+.pbody.staffgrid{grid-template-columns:240px minmax(0,1fr)}
+.staffgrid .aside{width:auto}
+@media(max-width:860px){.pbody.staffgrid{grid-template-columns:1fr}.aside{max-height:none}.aside .alist{max-height:260px}
+  .pnav{flex-direction:row;overflow-x:auto}.pnavb{white-space:nowrap}}
 </style></head><body>
 <header class="top">
   <div class="band">
@@ -1009,14 +1027,18 @@ function seasonCard(s, ns){
 /* Staff (Jetty Admin): ambassador list in a left side panel; selecting one shows their seasons on the right */
 let ADM = { q: "", open: null, data: {} };
 const isStaff = () => !!(S.me && S.me.admin && Array.isArray(S.me.roster));
-function staffSidebar(){
+let PTAB = "orders";
+const PTABS = [["orders","Past Orders"],["requests","Photo Gear Requests"],["upload","Upload Content"]];
+function profileSidebar(){
+  const staff = isStaff();
+  const openReq = staff && Array.isArray(REQ.all) ? REQ.all.filter(r => r.status === "Open").length : 0;
+  const nav = `<nav class="pnav" aria-label="Profile">${PTABS.map(([k,l]) => `<button type="button" class="pnavb${!ADM.open && PTAB===k ? " on" : ""}" data-ptab="${k}">${l}${k==="requests" && openReq ? ` <small>${openReq} open</small>` : ""}${k==="upload" ? ` <small>Soon</small>` : ""}</button>`).join("")}</nav>`;
+  if (!staff) return `<aside class="aside">${nav}</aside>`;
   const q = ADM.q.toLowerCase();
   const list = S.me.roster.filter(r => !q || (r.n + " " + r.e + " " + r.amc).toLowerCase().includes(q));
-  return `<aside class="aside">
+  return `<aside class="aside">${nav}
     <div class="asideh"><h3>Ambassadors <small>${S.me.roster.length}</small></h3>
       <label class="search"><span aria-hidden="true">⌕</span><input id="admQ" type="search" placeholder="Find an ambassador" value="${esc(ADM.q)}" aria-label="Find an ambassador"></label></div>
-    <button type="button" class="aself${ADM.open ? "" : " on"}" data-amb="">My account</button>
-    <button type="button" class="aself${ADM.open === "__requests" ? " on" : ""}" data-amb="__requests">Gear requests${Array.isArray(REQ.all) ? ` <small>${REQ.all.filter(r => r.status === "Open").length} open</small>` : ""}</button>
     <div class="alist">${list.map(r => `<button type="button" class="aname${ADM.open === r.id ? " on" : ""}" data-amb="${esc(r.id)}">
         <span class="av">${esc(initials(r.n))}</span><span class="atx"><b>${esc(r.n)}</b><small>${money(r.a)} · ${esc(r.amc || "No AM customer")}</small></span></button>`).join("") || `<p class="hint">No match.</p>`}</div>
   </aside>`;
@@ -1046,7 +1068,10 @@ function myPanel(){
   const orders = !PROF ? `<p class="hint pload">Loading your orders…</p>`
     : PROF.error ? `<p class="hint pload">We couldn't load your order history right now. Try again in a minute.</p>`
     : seasonsHTML(PROF.seasons || []);
-  return orders + requestsSection();
+  return `<h3 class="psec">Past Orders</h3>` + orders;
+}
+function uploadPanel(){
+  return `<h3 class="psec">Upload Content</h3><div class="soon"><b>Coming soon</b><p>You'll be able to upload the photos and video you've shot for Jetty right here.</p></div>`;
 }
 
 /* ===== Photoshoot gear requests ===== */
@@ -1098,7 +1123,7 @@ function reqForm(){
 function requestsSection(){
   if (REQ.mine === null) { REQ.mine = "loading"; loadMyRequests(); }
   const mine = Array.isArray(REQ.mine) ? REQ.mine : [];
-  return `<section class="rsec"><div class="rhead"><h3 class="psec">Photoshoot gear requests</h3>
+  return `<section class="rsec"><div class="rhead"><h3 class="psec">Photo Gear Requests</h3>
       ${REQ.form ? "" : `<button type="button" class="primary small" id="rq-open">Request gear for a shoot</button>`}</div>
     ${REQ.done ? `<div class="okbox"><b>Request sent</b>We've got it. We'll reach out about getting you the gear.</div>` : ""}
     ${REQ.form ? reqForm() : ""}
@@ -1110,7 +1135,7 @@ function staffRequestsPanel(){
   if (REQ.all === null) { REQ.all = "loading"; loadAllRequests(); }
   const all = Array.isArray(REQ.all) ? REQ.all : [];
   const shown = all.filter(r => REQ.filter === "All" || r.status === REQ.filter);
-  return `<div class="ambh"><div class="pwho"><span class="av big dark">↗</span><div><small>Staff</small><h2>Gear requests</h2>
+  return `<div class="ambh"><div class="pwho"><span class="av big dark">↗</span><div><small>All ambassadors</small><h2>Photo Gear Requests</h2>
       <p class="hint">Photoshoot gear requests from every ambassador, newest first.</p></div></div></div>
     <div class="chips rfilt">${["Open","Sent","Done","Declined","All"].map(f => `<button type="button" class="chip" data-rfilter="${f}" aria-pressed="${REQ.filter===f}">${f}${f!=="All" ? ` <small>${all.filter(r=>r.status===f).length}</small>` : ""}</button>`).join("")}</div>
     ${REQ.all === "loading" ? `<p class="hint pload">Loading requests…</p>` : REQ.all && REQ.all.error ? `<p class="hint pload">Couldn't load requests.</p>`
@@ -1136,12 +1161,15 @@ async function submitRequest(){
   REQ.busy = false; renderProfile();
 }
 function renderProfile(){
-  const body = $("profBody");
-  if (!isStaff()) { body.classList.remove("staffgrid"); body.innerHTML = myPanel(); return; }
-  body.classList.add("staffgrid");
+  const body = $("profBody"), staff = isStaff();
+  if (staff && REQ.all === null) { REQ.all = "loading"; loadAllRequests(); }
   const keepScroll = body.querySelector(".alist")?.scrollTop || 0;
-  if (REQ.all === null) { REQ.all = "loading"; loadAllRequests(); }
-  body.innerHTML = staffSidebar() + `<section class="pmain">${ADM.open === "__requests" ? staffRequestsPanel() : ADM.open ? ambPanel() : myPanel()}</section>`;
+  const main = ADM.open && staff ? ambPanel()
+    : PTAB === "requests" ? (staff ? staffRequestsPanel() : requestsSection())
+    : PTAB === "upload" ? uploadPanel()
+    : myPanel();
+  body.classList.add("staffgrid");
+  body.innerHTML = profileSidebar() + `<section class="pmain">${main}</section>`;
   const l = body.querySelector(".alist"); if (l) l.scrollTop = keepScroll;
 }
 $("who").addEventListener("click", openProfile);
@@ -1162,6 +1190,9 @@ $("profBody").addEventListener("click", e => {
   if (e.target.id === "rq-open") { REQ.form = true; REQ.done = false; REQ.err = ""; renderProfile(); setTimeout(() => $("rq-location")?.focus(), 30); return; }
   if (e.target.id === "rq-cancel") { readDraft(); REQ.form = false; REQ.err = ""; renderProfile(); return; }
   const rf = e.target.closest("[data-rfilter]"); if (rf) { REQ.filter = rf.dataset.rfilter; renderProfile(); return; }
+  const pt = e.target.closest("[data-ptab]");
+  if (pt) { PTAB = pt.dataset.ptab; ADM.open = null; renderProfile();
+    if (matchMedia("(max-width:860px)").matches) document.querySelector(".pmain")?.scrollIntoView({ behavior: "smooth", block: "start" }); return; }
   const am = e.target.closest("[data-amb]");
   if (am) { const id = am.dataset.amb || null; ADM.open = id; if (id && id !== "__requests" && !ADM.data[id]) loadAmb(id); renderProfile();
     if (matchMedia("(max-width:860px)").matches) document.querySelector(".pmain")?.scrollIntoView({ behavior: "smooth", block: "start" }); return; }
