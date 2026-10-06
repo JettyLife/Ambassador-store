@@ -700,11 +700,7 @@ function renderHeader(){
     + (CONFIG.deadline ? `<span class="left">· Order by ${esc(CONFIG.deadline)}</span>` : "");
   if (S.viewing && !$("viewBanner")) { const b = document.createElement("div"); b.id = "viewBanner"; b.className = "viewbar";
     b.innerHTML = `Viewing <b>${esc(S.me.n)}</b>'s store as staff. Anything you order here is placed under their account.`; document.querySelector("header.top").prepend(b); }
-  const ords = S.spentOrders || [];
-  $("placedBanner").hidden = !ords.length;
-  if (ords.length) $("placedBanner").innerHTML = `<b>You've placed ${ords.length} order${ords.length>1?"s":""} this season</b> (${money(m.used)} retail): `
-    + ords.map(o => `${esc(o.date || "")} · ${o.units} units · ${money(o.retail)}`).join("; ")
-    + `. You can place another order with what's left. Need to change an order? Email <span style="user-select:all">${esc(CONFIG.contact)}</span>.`;
+  $("placedBanner").hidden = true;
 }
 
 /* ===== Catalog ===== */
