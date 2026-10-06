@@ -24,6 +24,28 @@ const DIVISION_NAME = process.env.AM_DIVISION_NAME || "MARKETING / PROMO";
 const SOURCE_FIELD = process.env.AM_SOURCE_FIELD || "source";   // order header field that holds Source
 const SOURCE_VALUE = process.env.AM_SOURCE_VALUE || "B2B";
 const DEFAULT_STATE = "NJ";
+// Site password (Railway variable SITE_PASSWORD). Unset = no password. Changing it signs everyone out.
+const SITE_PASSWORD = process.env.SITE_PASSWORD || "";
+const AUTH_KEY = crypto.createHash("sha256").update("jas-auth:" + SITE_PASSWORD).digest();
+const AUTH_DAYS = 90;
+function authCookie() {
+  const exp = String(Date.now() + AUTH_DAYS * 864e5);
+  return exp + "." + crypto.createHmac("sha256", AUTH_KEY).update(exp).digest("hex");
+}
+function isAuthed(req) {
+  if (!SITE_PASSWORD) return true;
+  const m = String(req.headers.cookie || "").match(/(?:^|;\s*)jas_auth=([0-9]+)\.([0-9a-f]{64})/);
+  if (!m || Number(m[1]) < Date.now()) return false;
+  const want = crypto.createHmac("sha256", AUTH_KEY).update(m[1]).digest();
+  const got = Buffer.from(m[2], "hex");
+  return got.length === want.length && crypto.timingSafeEqual(got, want);
+}
+const tries = new Map(); // ip -> [timestamps]
+function tooMany(ip) {
+  const now = Date.now(), t = (tries.get(ip) || []).filter(x => now - x < 60000);
+  t.push(now); tries.set(ip, t);
+  return t.length > 10;
+}
 const STATES = {AL:"ALABAMA",AK:"ALASKA",AZ:"ARIZONA",AR:"ARKANSAS",CA:"CALIFORNIA",CO:"COLORADO",CT:"CONNECTICUT",DE:"DELAWARE",DC:"DISTRICT OF COLUMBIA",FL:"FLORIDA",GA:"GEORGIA",HI:"HAWAII",ID:"IDAHO",IL:"ILLINOIS",IN:"INDIANA",IA:"IOWA",KS:"KANSAS",KY:"KENTUCKY",LA:"LOUISIANA",ME:"MAINE",MD:"MARYLAND",MA:"MASSACHUSETTS",MI:"MICHIGAN",MN:"MINNESOTA",MS:"MISSISSIPPI",MO:"MISSOURI",MT:"MONTANA",NE:"NEBRASKA",NV:"NEVADA",NH:"NEW HAMPSHIRE",NJ:"NEW JERSEY",NM:"NEW MEXICO",NY:"NEW YORK",NC:"NORTH CAROLINA",ND:"NORTH DAKOTA",OH:"OHIO",OK:"OKLAHOMA",OR:"OREGON",PA:"PENNSYLVANIA",RI:"RHODE ISLAND",SC:"SOUTH CAROLINA",SD:"SOUTH DAKOTA",TN:"TENNESSEE",TX:"TEXAS",UT:"UTAH",VT:"VERMONT",VA:"VIRGINIA",WA:"WASHINGTON",WV:"WEST VIRGINIA",WI:"WISCONSIN",WY:"WYOMING",PR:"PUERTO RICO"};
 function stateCode(v) {
   const t = String(v || "").trim().toUpperCase().replace(/\./g, "");
@@ -281,6 +303,21 @@ function send(res, status, body, type = "application/json") {
 http.createServer(async (req, res) => {
   const url = new URL(req.url, "http://x");
   try {
+    if (req.method === "POST" && url.pathname === "/api/login") {
+      const ip = String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").split(",")[0].trim();
+      if (tooMany(ip)) return send(res, 429, { ok: false });
+      let raw = ""; for await (const c of req) { raw += c; if (raw.length > 2000) return send(res, 413, { ok: false }); }
+      let pw = ""; try { pw = String(JSON.parse(raw).password || ""); } catch (e) {}
+      const a = crypto.createHash("sha256").update(pw).digest(), b = crypto.createHash("sha256").update(SITE_PASSWORD).digest();
+      if (!SITE_PASSWORD || !crypto.timingSafeEqual(a, b)) return send(res, 401, { ok: false });
+      res.setHeader("Set-Cookie", `jas_auth=${authCookie()}; Path=/; Max-Age=${AUTH_DAYS * 86400}; HttpOnly; Secure; SameSite=Lax`);
+      return send(res, 200, { ok: true });
+    }
+    // Everything except the login page's own logo/pattern needs the site password.
+    if (!isAuthed(req) && !/^\/brand\/[^/]+\.png$/.test(url.pathname)) {
+      if (url.pathname.startsWith("/api/")) return send(res, 401, { ok: false, error: "Please sign in again." });
+      return fs.readFile(path.join(ROOT, "login.html"), (err, buf) => send(res, err ? 500 : 200, err ? "Error" : buf, "text/html; charset=utf-8"));
+    }
     if (req.method === "POST" && url.pathname === "/api/order") {
       if (!AM_TOKEN && !DRY_RUN) return send(res, 503, { ok: false, error: "Online ordering isn't switched on yet." });
       let raw = ""; for await (const c of req) { raw += c; if (raw.length > 100000) return send(res, 413, { ok: false }); }
@@ -335,4 +372,4 @@ http.createServer(async (req, res) => {
     fs.readFile(file, (err, buf) => err ? send(res, 404, "Not found", "text/plain")
       : send(res, 200, buf, TYPES[path.extname(file).toLowerCase()] || "application/octet-stream"));
   } catch (e) { console.error(e); send(res, 500, { ok: false }); }
-}).listen(PORT, () => console.log(`Ambassador store on :${PORT} (AM token ${AM_TOKEN ? "set" : "missing"}${DRY_RUN ? ", DRY RUN" : ""})`));
+}).listen(PORT, () => console.log(`Ambassador store on :${PORT} (AM token ${AM_TOKEN ? "set" : "missing"}${DRY_RUN ? ", DRY RUN" : ""}, password ${SITE_PASSWORD ? "on" : "OFF"})`));

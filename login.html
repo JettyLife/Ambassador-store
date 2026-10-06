@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<title>Jetty Ambassador Store</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Figtree:wght@400;500;600&display=swap">
+<style>
+:root{--slate:#43575E;--ink:#0d0f10;--muted:#5b6b71;--line:#d7dfe1;--warn:#b4521e;color-scheme:light}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;font-family:"Figtree",system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--slate);color:#fff;display:flex;align-items:center;justify-content:center;padding:24px 16px;position:relative;overflow:hidden}
+body::before{content:"";position:fixed;inset:0;background:#fff;opacity:.13;-webkit-mask:url(brand/topo.png) 0 0/900px auto repeat;mask:url(brand/topo.png) 0 0/900px auto repeat;pointer-events:none}
+.card{position:relative;width:min(400px,100%);background:#fff;color:var(--ink);border-radius:10px;padding:30px 26px 26px;box-shadow:0 20px 50px rgba(0,0,0,.25);display:flex;flex-direction:column;gap:16px}
+.wm{display:flex;align-items:center;gap:12px}
+.wm b{font-family:"Barlow Condensed","Arial Narrow",sans-serif;font-weight:700;font-size:40px;letter-spacing:.08em;text-transform:uppercase;line-height:1}
+.wm img{width:46px;height:46px}
+.sub{font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin-top:-8px}
+h1{font-family:"Barlow Condensed","Arial Narrow",sans-serif;font-size:26px;text-transform:uppercase;letter-spacing:.02em;margin:6px 0 0}
+p{margin:0;color:var(--muted);font-size:14px;line-height:1.45}
+label{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+input{width:100%;font:inherit;font-size:16px;padding:12px 14px;border:1px solid var(--line);border-radius:6px;margin-top:6px}
+input:focus{outline:2px solid var(--slate);outline-offset:1px}
+button{font:inherit;font-weight:600;font-size:15px;border:0;border-radius:6px;padding:13px;background:var(--slate);color:#fff;cursor:pointer}
+button:disabled{opacity:.6;cursor:progress}
+.err{color:var(--warn);font-size:13.5px;min-height:1em}
+</style></head><body>
+<form class="card" id="f" novalidate>
+  <div class="wm"><b>Jetty</b><img src="brand/logo-slate.png" alt=""></div>
+  <div class="sub">Ambassador Store</div>
+  <h1>Enter password</h1>
+  <p>Use the password from your invitation email.</p>
+  <div><label for="pw">Password</label><input id="pw" type="password" autocomplete="current-password" autofocus required></div>
+  <div class="err" id="err" role="alert"></div>
+  <button id="go" type="submit">Enter store</button>
+</form>
+<script>
+document.getElementById("f").addEventListener("submit", async e => {
+  e.preventDefault();
+  const pw = document.getElementById("pw").value, err = document.getElementById("err"), go = document.getElementById("go");
+  if (!pw) { err.textContent = "Enter the password."; return; }
+  go.disabled = true; err.textContent = "";
+  try {
+    const r = await fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: pw }) });
+    if (r.ok) { location.reload(); return; }
+    err.textContent = r.status === 429 ? "Too many tries. Wait a minute and try again." : "That password isn't right. Check your invitation email and try again.";
+  } catch (x) { err.textContent = "Couldn't connect. Check your internet and try again."; }
+  go.disabled = false;
+});
+</script>
+</body></html>
