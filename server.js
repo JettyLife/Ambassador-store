@@ -24,6 +24,7 @@ const DIVISION_NAME = process.env.AM_DIVISION_NAME || "MARKETING / PROMO";
 const SOURCE_FIELD = process.env.AM_SOURCE_FIELD || "source";   // order header field that holds Source
 const SOURCE_VALUE = process.env.AM_SOURCE_VALUE || "B2B";
 const DEFAULT_STATE = "NJ";
+const BUILD = "2026-10-06 volume check";
 // Site password (Railway variable SITE_PASSWORD). Unset = no password. Changing it signs everyone out.
 const SITE_PASSWORD = process.env.SITE_PASSWORD || "";
 const AUTH_KEY = crypto.createHash("sha256").update("jas-auth:" + SITE_PASSWORD).digest();
@@ -645,7 +646,7 @@ http.createServer(async (req, res) => {
       } catch (e) { return send(res, 502, { ok: false, error: e.message }); }
     }
     if (url.pathname === "/api/health") {
-      const out = { ok: true, tokenSet: !!AM_TOKEN, dryRun: DRY_RUN, dataDir: DATA_DIR, persistentStorage: DATA_DIR === "/data", subdomain: AM_BASE.split("//")[1].split(".")[0] };
+      const out = { ok: true, build: BUILD, savedRequests: readRequests().length, tokenSet: !!AM_TOKEN, dryRun: DRY_RUN, dataDir: DATA_DIR, persistentStorage: DATA_DIR === "/data", subdomain: AM_BASE.split("//")[1].split(".")[0] };
       if (url.searchParams.get("check") === "1" && process.env.ADMIN_KEY && url.searchParams.get("key") === process.env.ADMIN_KEY) {
         try { out.warehouseId = await warehouseId(); out.divisionId = await divisionId(); out.amReachable = true; } catch (e) { out.amReachable = false; out.amError = e.message; }
       }
