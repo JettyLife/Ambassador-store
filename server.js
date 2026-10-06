@@ -108,6 +108,17 @@ async function amPost(endpoint, payload) {
   return j.response || [];
 }
 
+async function amPut(endpoint, payload) {
+  const r = await fetch(AM_BASE + endpoint, {
+    method: "PUT",
+    headers: { "User-Agent": UA, "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ ...auth(), ...payload }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || (j.meta && j.meta.errors && j.meta.errors.length)) throw new Error(`AM PUT ${endpoint} failed (${r.status}): ${JSON.stringify(j.meta?.errors || j).slice(0, 300)}`);
+  return j.response || [];
+}
+
 const cache = { divisionId: process.env.AM_DIVISION_ID || "", warehouseId: process.env.AM_WAREHOUSE_ID || "", customers: new Map(), skus: new Map() };
 async function warehouseId() {
   if (cache.warehouseId) return cache.warehouseId;
@@ -412,6 +423,10 @@ async function handleOrder(input) {
     `This order: $${retail.toFixed(2)} retail` + (before !== null ? `. Season total: $${total.toFixed(2)} of $${Number(me.a).toFixed(2)} allowance${total > me.a ? ` (OVER by $${(total - me.a).toFixed(2)})` : ""}` : ` (allowance $${Number(me.a).toFixed(2)})`),
     notes ? `Ambassador notes: ${notes}` : ""].filter(Boolean).join("\n");
 
+  // Over the season allowance (counting earlier orders) -> order goes in as Pending for review; otherwise Approved.
+  const overAllowance = total > Number(me.a) + 0.005;
+  header.credit_status = overAllowance ? "Pending" : "Approved";
+
   const ids = await skuIds(lines.map(l => l.upc));
   const items = lines.map(l => ({ sku_id: ids[l.upc], qty: String(l.qty), unit_price: CATALOG[l.upc].p.toFixed(2), warehouse_id: header.warehouse_id }));
   const payload = { header, items };
@@ -420,14 +435,20 @@ async function handleOrder(input) {
   if (DRY_RUN) return { ok: true, dryRun: true, orderId, wouldSend: payload };
 
   const res = await amPost("orders/", payload);
-  const amOrderId = (Array.isArray(res) ? res[0] : res)?.order_id || null;
+  const created = Array.isArray(res) ? res[0] : res;
+  const amOrderId = created?.order_id || null;
+  // Make sure the status stuck (AM may default new orders to Approved).
+  if (amOrderId && String(created?.credit_status || "") !== header.credit_status) {
+    try { await amPut(`orders/${amOrderId}`, { order_id: String(amOrderId), credit_status: header.credit_status }); }
+    catch (e) { console.error(JSON.stringify({ event: "credit_status_update_failed", amOrderId, want: header.credit_status, error: e.message })); }
+  }
   const units = lines.reduce((t, l) => t + l.qty, 0);
   if (!recent.has(me.po)) recent.set(me.po, []);
   recent.get(me.po).push({ amOrderId: String(amOrderId || orderId), date: new Date().toLocaleDateString("en-US"), retail, units });
   spentCache.delete(me.po); histCache.delete(me.po);
-  const out = { ok: true, orderId, amOrderId, spent: Math.round(total * 100) / 100 };
+  const out = { ok: true, orderId, amOrderId, spent: Math.round(total * 100) / 100, pending: overAllowance };
   if (orderId) seen.set(orderId, out);
-  console.log(JSON.stringify({ event: "order_created", orderId, amOrderId }));
+  console.log(JSON.stringify({ event: "order_created", orderId, amOrderId, creditStatus: header.credit_status }));
   return out;
 }
 

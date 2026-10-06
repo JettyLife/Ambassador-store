@@ -864,6 +864,7 @@ function renderCart(){
     $("dTitle").textContent = "Order placed";
     body.innerHTML = `<div class="review" style="padding-top:12px"><div class="okbox"><b>Thanks, ${esc(S.me.f || S.me.n)}!</b>
       Order <strong>${esc(placed.id)}</strong> is in. ${placed.units} units, ${money(placed.value)} retail.</div>
+      ${placed.pending ? `<div class="note">This order goes over your allowance, so it's on hold until Jetty reviews it. We'll reach out if anything needs to change.</div>` : ""}
       <p class="hint">We'll review it and follow up by email if anything needs to change. Questions: <span style="user-select:all">${esc(CONFIG.contact)}</span></p></div>`;
     foot.innerHTML = `<button type="button" class="ghost" id="closeCart2">Done</button>`;
     return;
@@ -976,7 +977,7 @@ async function placeOrder(btn){
     return;
   }
   if (j.dryRun) { err.hidden = false; err.textContent = "Test mode: everything checked out, but no order was created in AM."; btn.disabled = false; btn.textContent = "Place order"; console.log(j.wouldSend); return; }
-  store.set(K("placed"), { id, am: j.amOrderId || "", at: new Date().toISOString(), units: t.units, value: t.value });
+  store.set(K("placed"), { id, am: j.amOrderId || "", at: new Date().toISOString(), units: t.units, value: t.value, pending: !!j.pending });
   S.spent = typeof j.spent === "number" ? j.spent : (S.spent || 0) + t.value;
   S.spentOrders = (S.spentOrders || []).concat([{ amOrderId: j.amOrderId, date: new Date().toLocaleDateString("en-US"), units: t.units, retail: t.value }]);
   setTimeout(loadSpent, 8000); PROF = null;
