@@ -477,6 +477,13 @@ body.noscroll{overflow:hidden}
 .trk a{font-size:12.5px;color:var(--slate);text-decoration:none;border:1px solid var(--slate);border-radius:999px;padding:3px 10px}
 .trk a:hover{background:var(--slate);color:#fff}
 .trk .code{font-family:var(--f-mono);font-size:11.5px}
+.ship.st-ready{border-color:var(--slate);background:var(--accent-soft)}
+.ship.st-ready .sico{background:var(--slate);color:#fff;font-weight:700}
+.ship .stx{flex:1}
+.pickbtn{align-self:center;border:0;background:var(--slate);color:#fff;border-radius:999px;padding:7px 14px;font-weight:600;font-size:13px;white-space:nowrap}
+.pickbtn:hover{background:var(--slate-deep)}
+.pickbtn:disabled{opacity:.6}
+@media(max-width:520px){.ship{flex-wrap:wrap}.pickbtn{width:100%;margin-top:6px}}
 </style></head><body>
 <header class="top">
   <div class="band">
@@ -1016,14 +1023,15 @@ async function loadProfile(){
   renderProfile();
 }
 const thumbFor = style => { const p = PRODUCTS.find(x => x.s === style); return p && p.imgs && p.imgs[0] || ""; };
-function shipBox(o){
+function shipBox(o, asId){
   const sh = o.ship || {}, tr = o.tracking || [];
-  const icon = sh.state === "shipped" ? "✓" : sh.state === "partial" ? "◐" : "○";
-  const where = sh.pickup ? esc(o.method) : "";
+  const icon = sh.state === "shipped" ? "✓" : sh.state === "partial" ? "◐" : sh.state === "ready" ? "!" : "○";
+  const where = sh.pickup ? esc(o.method) + (sh.pickedUpAt ? ` · ${new Date(sh.pickedUpAt).toLocaleDateString("en-US",{month:"short",day:"numeric"})}${sh.pickedUpBy === "Jetty staff" ? " (marked by Jetty)" : ""}` : "") : "";
+  const btn = sh.canConfirm ? `<button type="button" class="pickbtn" data-pickup="${esc(o.amOrderId)}"${asId ? ` data-as="${esc(asId)}"` : ""}>Mark as picked up</button>` : "";
   return `<div class="ship st-${esc(sh.state || "processing")}"><span class="sico" aria-hidden="true">${icon}</span>
     <div class="stx"><b>${esc(sh.label || "Processing")}</b>${o.shipDate ? ` <small>${esc(o.shipDate)}</small>` : ""}${where ? `<small>${where}</small>` : ""}
       ${tr.length ? `<div class="trk">${tr.map(t => `<a href="${esc(t.url)}" target="_blank" rel="noopener">${t.carrier ? esc(t.carrier) + " " : ""}<span class="code">${esc(t.number)}</span> ↗</a>`).join("")}</div>`
-        : (sh.state !== "processing" && !sh.pickup ? `<small>Tracking number not available yet.</small>` : "")}</div></div>`;
+        : (sh.state !== "processing" && !sh.pickup ? `<small>Tracking number not available yet.</small>` : "")}</div>${btn}</div>`;
 }
 function seasonCard(s, ns){
   const key = (ns ? ns + "|" : "") + s.code;
@@ -1038,7 +1046,7 @@ function seasonCard(s, ns){
     </button>
     ${open ? `<div class="sbody">${s.orders.length ? s.orders.map(o => `
       <div class="pord"><div class="pordh"><b>Order ${esc(o.amOrderId)}</b><span>${esc(o.date)} · ${o.units} units · ${money(o.retail)}</span></div>
-        ${shipBox(o)}
+        ${shipBox(o, ns && ns.startsWith("a:") ? ns.slice(2) : "")}
         ${o.items.map(it => { const th = thumbFor(it.style); return `<div class="pit">
           <div class="pth">${th ? `<img src="${esc(th)}" alt="" loading="lazy" onerror="this.remove()">` : ""}</div>
           <div class="pinfo"><b>${esc(it.desc || it.style)}</b><small>${esc((PRODUCTS.find(x => x.s === it.style) || {}).c || it.color)} · Size ${esc(it.size)} · <span class="code">${esc(it.style)}</span></small></div>
@@ -1051,6 +1059,15 @@ let ADM = { q: "", open: null, data: {} };
 const isStaff = () => !!(S.me && S.me.admin && Array.isArray(S.me.roster));
 let PTAB = "orders";
 const PTABS = [["orders","Past Orders"],["requests","Photo Gear Requests"],["upload","Upload Content"]];
+async function pickedUp(btn){
+  btn.disabled = true; btn.textContent = "Saving…";
+  try {
+    const r = await fetch("/api/pickup", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ code: S.code, order: btn.dataset.pickup, as: btn.dataset.as || undefined }) });
+    const j = await r.json().catch(() => ({})); if (!r.ok || !j.ok) throw new Error(j.error || "Couldn't save that. Try again.");
+    toast("Marked as picked up");
+    if (btn.dataset.as) { delete ADM.data[btn.dataset.as]; loadAmb(btn.dataset.as); } else { PROF = null; loadProfile(); }
+  } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = "Mark as picked up"; }
+}
 function profileSidebar(){
   const staff = isStaff();
   const openReq = staff && Array.isArray(REQ.all) ? REQ.all.filter(r => r.status === "Open").length : 0;
@@ -1211,6 +1228,8 @@ $("profBody").addEventListener("change", async e => {
 $("profBody").addEventListener("click", e => {
   if (e.target.id === "rq-open") { REQ.form = true; REQ.done = false; REQ.err = ""; renderProfile(); setTimeout(() => $("rq-location")?.focus(), 30); return; }
   if (e.target.id === "rq-cancel") { readDraft(); REQ.form = false; REQ.err = ""; renderProfile(); return; }
+  const pk = e.target.closest("[data-pickup]");
+  if (pk) { pickedUp(pk); return; }
   const rf = e.target.closest("[data-rfilter]"); if (rf) { REQ.filter = rf.dataset.rfilter; renderProfile(); return; }
   const pt = e.target.closest("[data-ptab]");
   if (pt) { PTAB = pt.dataset.ptab; ADM.open = null; renderProfile();

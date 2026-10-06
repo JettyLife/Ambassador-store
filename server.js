@@ -211,7 +211,8 @@ function findTracking(obj, hint, out = []) {
 }
 const shipCache = new Map(); // order_id -> {at, data}
 async function shipmentsFor(orderIds) {
-  const need = orderIds.filter(id => { const c = shipCache.get(id); return !c || Date.now() - c.at > 10 * 60000; });
+  // Re-check every 2 minutes until a tracking number shows up, then every 30 minutes.
+  const need = orderIds.filter(id => { const c = shipCache.get(id); return !c || Date.now() - c.at > (c.data.tracking.length ? 30 : 2) * 60000; });
   for (let i = 0; i < need.length; i += 25) {
     const chunk = need.slice(i, i + 25);
     let rows = [];
@@ -229,12 +230,22 @@ async function shipmentsFor(orderIds) {
   }
   return Object.fromEntries(orderIds.map(id => [id, (shipCache.get(id) || {}).data || { tracking: [] }]));
 }
-function shipStatus(o) {
+// Pickup orders: once AM marks them shipped they're "Ready for pickup"; the ambassador (or staff) confirms the pickup on the site.
+const PICK_FILE = () => path.join(DATA_DIR, "pickups.json");
+function readPickups() { try { return JSON.parse(fs.readFileSync(PICK_FILE(), "utf8")); } catch (e) { return {}; } }
+function writePickups(m) { fs.mkdirSync(DATA_DIR, { recursive: true }); const t = PICK_FILE() + ".tmp"; fs.writeFileSync(t, JSON.stringify(m, null, 1)); fs.renameSync(t, PICK_FILE()); }
+function shipStatus(o, pickups) {
   const qty = Number(o.qty || 0) - Number(o.qty_cxl || 0), shipped = Number(o.qty_shipped || 0);
   const pickup = /pickup/i.test(String(o.shipping_info || ""));
-  if (shipped <= 0) return { state: "processing", label: pickup ? "Not picked up yet" : "Not shipped yet", pickup };
-  if (shipped < qty) return { state: "partial", label: pickup ? "Partly picked up" : "Partly shipped", pickup };
-  return { state: "shipped", label: pickup ? "Picked up" : "Shipped", pickup };
+  if (pickup) {
+    const p = (pickups || {})[String(o.order_id)];
+    if (p) return { state: "shipped", label: "Picked up", pickup, pickedUpAt: p.at, pickedUpBy: p.by };
+    if (shipped <= 0) return { state: "processing", label: "Getting your order ready", pickup };
+    return { state: "ready", label: shipped < qty ? "Partly ready for pickup" : "Ready for pickup", pickup, canConfirm: true };
+  }
+  if (shipped <= 0) return { state: "processing", label: "Not shipped yet", pickup };
+  if (shipped < qty) return { state: "partial", label: "Partly shipped", pickup };
+  return { state: "shipped", label: "Shipped", pickup };
 }
 async function allOrders(cid) {
   const out = []; let last = null;
@@ -255,7 +266,7 @@ async function history(me) {
   if (hit && Date.now() - hit.at < 60000) return hit.data;
   const cur = seasonOfPo(me.po);
   const rows = await allOrders(await customerId(me.amc));
-  const seasons = new Map();
+  const seasons = new Map(), pickups = readPickups();
   for (const o of rows) {
     const s = seasonOfPo(o.customer_po); if (!s) continue;
     if (s.test !== !!me.t) continue;                       // test link sees test orders only, ambassadors never see tests
@@ -266,7 +277,7 @@ async function history(me) {
     }).filter(it => it.qty > 0);
     if (!items.length) continue;
     if (!seasons.has(s.code)) seasons.set(s.code, { ...s, allowance: s.code === cur?.code ? Number(me.a) : (me.pa || {})[s.code] ?? null, orders: [] });
-    seasons.get(s.code).orders.push({ amOrderId: String(o.order_id), date: o.date || "", items, ship: shipStatus(o),
+    seasons.get(s.code).orders.push({ amOrderId: String(o.order_id), date: o.date || "", items, ship: shipStatus(o, pickups),
       method: String(o.shipping_info || ""),
       units: items.reduce((t, i) => t + i.qty, 0), retail: items.reduce((t, i) => t + i.qty * i.retail, 0) });
   }
@@ -468,6 +479,26 @@ http.createServer(async (req, res) => {
         console.error(JSON.stringify({ event: "request_error", error: e.message }));
         return send(res, e.message === "bad_code" || e.code === "ENOENT" ? 403 : 500, { ok: false, error: "Something went wrong. Try again." });
       }
+    }
+    if (req.method === "POST" && url.pathname === "/api/pickup") {
+      let raw = ""; for await (const c of req) { raw += c; if (raw.length > 2000) return send(res, 413, { ok: false }); }
+      try {
+        const body = JSON.parse(raw), me = unlock(String(body.code || "").toUpperCase()), id = String(body.order || "");
+        let owner = me;
+        if (body.as) {
+          if (!me.admin) return send(res, 403, { ok: false });
+          const w = (me.roster || []).find(r => r.id === String(body.as)); if (!w) return send(res, 404, { ok: false });
+          owner = { n: w.n, a: w.a, amc: w.amc, po: w.po, pa: w.pa || {} };
+        }
+        histCache.delete(owner.po);
+        const h = await history(owner);
+        const o = h.seasons.flatMap(s => s.orders).find(x => x.amOrderId === id);
+        if (!o || !o.ship.canConfirm) return send(res, 409, { ok: false, error: "This order isn't ready for pickup yet." });
+        const m = readPickups(); m[id] = { at: new Date().toISOString(), by: body.as ? "Jetty staff" : me.n }; writePickups(m);
+        histCache.delete(owner.po);
+        console.log(JSON.stringify({ event: "picked_up", order: id, by: m[id].by }));
+        return send(res, 200, { ok: true });
+      } catch (e) { console.error(JSON.stringify({ event: "pickup_error", error: e.message })); return send(res, 500, { ok: false, error: "Couldn't save that. Try again." }); }
     }
     if (req.method === "POST" && url.pathname === "/api/debug/shipments") {
       let raw = ""; for await (const c of req) { raw += c; if (raw.length > 2000) return send(res, 413, { ok: false }); }
