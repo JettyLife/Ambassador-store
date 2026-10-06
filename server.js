@@ -306,7 +306,14 @@ http.createServer(async (req, res) => {
       if (!AM_TOKEN) return send(res, 503, { ok: false });
       let raw = ""; for await (const c of req) { raw += c; if (raw.length > 2000) return send(res, 413, { ok: false }); }
       try {
-        const me = unlock(String(JSON.parse(raw).code || "").toUpperCase());
+        const body = JSON.parse(raw);
+        let me = unlock(String(body.code || "").toUpperCase());
+        if (body.as) {                                   // admin looking at another ambassador
+          if (!me.admin || !Array.isArray(me.roster)) return send(res, 403, { ok: false });
+          const who = me.roster.find(r => r.id === String(body.as));
+          if (!who) return send(res, 404, { ok: false });
+          me = { n: who.n, a: who.a, amc: who.amc, po: who.po, pa: who.pa || {} };
+        }
         if (!me.amc) return send(res, 200, { ok: true, name: me.n, seasons: [] });
         return send(res, 200, { ok: true, ...(await history(me)) });
       } catch (e) {
