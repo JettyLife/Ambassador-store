@@ -227,6 +227,37 @@ async function history(me) {
   return data;
 }
 
+/* ---------- photoshoot gear requests ---------- */
+// Stored as JSON on disk. On Railway attach a Volume mounted at /data so requests survive redeploys.
+const DATA_DIR = process.env.DATA_DIR || (fs.existsSync("/data") ? "/data" : path.join(ROOT, "data"));
+const REQ_FILE = path.join(DATA_DIR, "gear-requests.json");
+const GEAR = ["Swim", "Walkshorts", "Tees", "Wovens / Button-ups", "Polos & Knits", "Hoodies & Sweatshirts", "Flannels", "Jackets", "Hats", "Accessories"];
+function readRequests() { try { return JSON.parse(fs.readFileSync(REQ_FILE, "utf8")); } catch (e) { return []; } }
+function writeRequests(list) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  const tmp = REQ_FILE + ".tmp"; fs.writeFileSync(tmp, JSON.stringify(list, null, 1)); fs.renameSync(tmp, REQ_FILE);
+}
+const clip = (v, n) => String(v || "").replace(/[\u0000-\u001f]/g, " ").trim().slice(0, n);
+const isDate = v => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ""));
+function newRequest(me, f) {
+  const gear = (Array.isArray(f.gear) ? f.gear : []).filter(g => GEAR.includes(g));
+  const other = clip(f.other, 200);
+  const r = {
+    id: "REQ-" + Date.now().toString(36).toUpperCase() + crypto.randomBytes(2).toString("hex").toUpperCase(),
+    at: new Date().toISOString(), status: "Open", test: !!me.t,
+    who: { id: me.id, n: me.n, e: me.e, amc: me.amc || "" },
+    location: clip(f.location, 200), shootDate: isDate(f.shootDate) ? f.shootDate : "", needBy: isDate(f.needBy) ? f.needBy : "",
+    gear, other, sizes: clip(f.sizes, 300), notes: clip(f.notes, 1500),
+  };
+  if (!r.location) throw Object.assign(new Error("Add where the shoot is taking place."), { status: 400 });
+  if (!r.needBy) throw Object.assign(new Error("Add the date you need the gear by."), { status: 400 });
+  if (!r.gear.length && !r.other) throw Object.assign(new Error("Choose at least one kind of gear."), { status: 400 });
+  const list = readRequests(); list.push(r); writeRequests(list);
+  console.log(JSON.stringify({ event: "gear_request", id: r.id, who: r.who.n, needBy: r.needBy, gear: r.gear, other: r.other }));
+  // TODO (email): send the request details + who it came from once an email service is chosen.
+  return r;
+}
+
 /* ---------- order ---------- */
 const seen = new Map(); // orderId -> result (stops double submits)
 async function handleOrder(input) {
@@ -358,8 +389,31 @@ http.createServer(async (req, res) => {
         return send(res, e.message === "bad_code" || e.code === "ENOENT" ? 403 : 502, { ok: false });
       }
     }
+    if (req.method === "POST" && url.pathname.startsWith("/api/requests/")) {
+      let raw = ""; for await (const c of req) { raw += c; if (raw.length > 20000) return send(res, 413, { ok: false }); }
+      try {
+        const body = JSON.parse(raw);
+        const me = unlock(String(body.code || "").toUpperCase());
+        const action = url.pathname.slice("/api/requests/".length);
+        if (action === "new") return send(res, 200, { ok: true, request: newRequest(me, body.request || {}) });
+        if (action === "mine") return send(res, 200, { ok: true, requests: readRequests().filter(r => r.who.id === me.id).reverse() });
+        if (!me.admin) return send(res, 403, { ok: false });
+        if (action === "all") return send(res, 200, { ok: true, requests: readRequests().reverse() });
+        if (action === "status") {
+          const list = readRequests(), r = list.find(x => x.id === body.id);
+          if (!r || !["Open", "Sent", "Done", "Declined"].includes(body.status)) return send(res, 400, { ok: false });
+          r.status = body.status; r.statusAt = new Date().toISOString(); writeRequests(list);
+          return send(res, 200, { ok: true, request: r });
+        }
+        return send(res, 404, { ok: false });
+      } catch (e) {
+        if (e.status) return send(res, e.status, { ok: false, error: e.message });
+        console.error(JSON.stringify({ event: "request_error", error: e.message }));
+        return send(res, e.message === "bad_code" || e.code === "ENOENT" ? 403 : 500, { ok: false, error: "Something went wrong. Try again." });
+      }
+    }
     if (url.pathname === "/api/health") {
-      const out = { ok: true, tokenSet: !!AM_TOKEN, dryRun: DRY_RUN, subdomain: AM_BASE.split("//")[1].split(".")[0] };
+      const out = { ok: true, tokenSet: !!AM_TOKEN, dryRun: DRY_RUN, dataDir: DATA_DIR, persistentStorage: DATA_DIR === "/data", subdomain: AM_BASE.split("//")[1].split(".")[0] };
       if (url.searchParams.get("check") === "1" && process.env.ADMIN_KEY && url.searchParams.get("key") === process.env.ADMIN_KEY) {
         try { out.warehouseId = await warehouseId(); out.divisionId = await divisionId(); out.amReachable = true; } catch (e) { out.amReachable = false; out.amError = e.message; }
       }

@@ -410,6 +410,43 @@ body.noscroll{overflow:hidden}
   .pbody.staffgrid{grid-template-columns:1fr}
   .aside{position:static;max-height:300px}
 }
+/* gear requests */
+.rsec{margin-top:34px}
+.rhead{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.rhead .psec{margin:0}
+.primary.small{padding:9px 14px;font-size:14px}
+.rsec .okbox{margin-top:12px}
+.rform{background:var(--surface);border:1px solid var(--slate);border-radius:var(--r);padding:18px;margin-top:14px;display:flex;flex-direction:column;gap:14px}
+.rform h4{margin:0;font-family:var(--f-display);font-size:22px;text-transform:uppercase;letter-spacing:.02em}
+.rform .f{grid-column:auto}
+.rform textarea{width:100%;min-height:80px}
+.rgear{border:0;padding:0;margin:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px}
+.rgear legend{font-size:12px;color:var(--muted);padding:0;margin-bottom:8px}
+.chk{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:var(--r);padding:9px 10px;cursor:pointer;font-size:14px;background:var(--bg)}
+.chk:has(input:checked){border-color:var(--slate);background:var(--accent-soft)}
+.chk input{accent-color:var(--slate);width:16px;height:16px;margin:0}
+.othertx{grid-column:1/-1;width:100%;font:inherit;font-size:16px;padding:10px 11px;border:1px solid var(--slate);border-radius:var(--r)}
+.rdates{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.rbtns{display:flex;gap:10px;flex-wrap:wrap}
+.rbtns .primary{flex:1;min-width:160px}
+.rlist{display:flex;flex-direction:column;gap:10px;margin-top:12px}
+.rcard{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;box-shadow:inset 3px 0 0 var(--line)}
+.rcard.st-open{box-shadow:inset 3px 0 0 var(--slate)}
+.rcard.st-sent{box-shadow:inset 3px 0 0 #8fa3aa}
+.rcard.st-done{box-shadow:inset 3px 0 0 var(--ok)}
+.rcard.st-declined{box-shadow:inset 3px 0 0 var(--warn);opacity:.8}
+.rtop{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.rtop b{display:block;font-size:15px}
+.rtop small{color:var(--muted);font-size:12px}
+.rpill{font-size:11px;letter-spacing:.06em;text-transform:uppercase;background:var(--accent-soft);color:var(--slate);border-radius:999px;padding:4px 9px;white-space:nowrap;font-weight:600}
+.rstat{font:inherit;font-size:13px;border:1px solid var(--line);border-radius:var(--r);padding:5px 8px;background:var(--bg)}
+.rdl{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;margin:10px 0 0;font-size:13.5px}
+.rdl dt{color:var(--muted)}
+.rdl dd{margin:0;min-width:0;overflow-wrap:anywhere}
+.rfilt{margin:14px 0 2px;flex-wrap:wrap}
+.rfilt small{opacity:.7;margin-left:2px}
+.aself small{font-weight:400;opacity:.8;margin-left:4px}
+@media(max-width:520px){.rdates{grid-template-columns:1fr}.rgear{grid-template-columns:1fr 1fr}}
 </style></head><body>
 <header class="top">
   <div class="band">
@@ -979,6 +1016,7 @@ function staffSidebar(){
     <div class="asideh"><h3>Ambassadors <small>${S.me.roster.length}</small></h3>
       <label class="search"><span aria-hidden="true">⌕</span><input id="admQ" type="search" placeholder="Find an ambassador" value="${esc(ADM.q)}" aria-label="Find an ambassador"></label></div>
     <button type="button" class="aself${ADM.open ? "" : " on"}" data-amb="">My account</button>
+    <button type="button" class="aself${ADM.open === "__requests" ? " on" : ""}" data-amb="__requests">Gear requests${Array.isArray(REQ.all) ? ` <small>${REQ.all.filter(r => r.status === "Open").length} open</small>` : ""}</button>
     <div class="alist">${list.map(r => `<button type="button" class="aname${ADM.open === r.id ? " on" : ""}" data-amb="${esc(r.id)}">
         <span class="av">${esc(initials(r.n))}</span><span class="atx"><b>${esc(r.n)}</b><small>${money(r.a)} · ${esc(r.amc || "No AM customer")}</small></span></button>`).join("") || `<p class="hint">No match.</p>`}</div>
   </aside>`;
@@ -1005,28 +1043,127 @@ async function loadAmb(id){
   if (ADM.open === id) renderProfile();
 }
 function myPanel(){
-  if (!PROF) return `<p class="hint pload">Loading your orders…</p>`;
-  if (PROF.error) return `<p class="hint pload">We couldn't load your order history right now. Try again in a minute.</p>`;
-  return seasonsHTML(PROF.seasons || []);
+  const orders = !PROF ? `<p class="hint pload">Loading your orders…</p>`
+    : PROF.error ? `<p class="hint pload">We couldn't load your order history right now. Try again in a minute.</p>`
+    : seasonsHTML(PROF.seasons || []);
+  return orders + requestsSection();
+}
+
+/* ===== Photoshoot gear requests ===== */
+const GEAR = ["Swim", "Walkshorts", "Tees", "Wovens / Button-ups", "Polos & Knits", "Hoodies & Sweatshirts", "Flannels", "Jackets", "Hats", "Accessories"];
+let REQ = { mine: null, all: null, form: false, draft: { gear: [] }, err: "", busy: false, filter: "Open" };
+const fmtDate = d => d ? new Date(d + (d.length === 10 ? "T12:00:00" : "")).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "";
+async function reqApi(action, extra){
+  const r = await fetch("/api/requests/" + action, { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ code: S.code, ...(extra || {}) }) });
+  const j = await r.json().catch(() => ({})); if (!r.ok || !j.ok) throw new Error(j.error || "Something went wrong. Try again."); return j;
+}
+async function loadMyRequests(){ try { REQ.mine = (await reqApi("mine")).requests; } catch (e) { REQ.mine = { error: true }; } renderProfile(); }
+async function loadAllRequests(){ try { REQ.all = (await reqApi("all")).requests; } catch (e) { REQ.all = { error: true }; } renderProfile(); }
+function reqCard(r, staff){
+  const gear = r.gear.concat(r.other ? ["Other: " + r.other] : []);
+  return `<article class="rcard st-${esc(r.status.toLowerCase())}">
+    <div class="rtop"><div><b>${staff ? esc(r.who.n) + " · " : ""}${esc(r.location)}</b>
+      <small>Submitted ${fmtDate(r.at.slice(0,10))}${r.test ? " · TEST" : ""}</small></div>
+      ${staff ? `<select class="rstat" data-req="${esc(r.id)}" aria-label="Status">${["Open","Sent","Done","Declined"].map(s => `<option${s===r.status?" selected":""}>${s}</option>`).join("")}</select>`
+        : `<span class="rpill">${esc(r.status === "Open" ? "Submitted" : r.status)}</span>`}</div>
+    <dl class="rdl"><dt>Need by</dt><dd>${fmtDate(r.needBy)}</dd>
+      ${r.shootDate ? `<dt>Shoot date</dt><dd>${fmtDate(r.shootDate)}</dd>` : ""}
+      <dt>Gear</dt><dd>${gear.map(esc).join(", ")}</dd>
+      ${r.sizes ? `<dt>Sizes</dt><dd>${esc(r.sizes)}</dd>` : ""}
+      ${r.notes ? `<dt>Notes</dt><dd>${esc(r.notes)}</dd>` : ""}
+      ${staff ? `<dt>Contact</dt><dd>${esc(r.who.e)}${r.who.amc ? " · " + esc(r.who.amc) : ""}</dd>` : ""}</dl>
+  </article>`;
+}
+function reqForm(){
+  const d = REQ.draft, today = new Date().toISOString().slice(0,10);
+  return `<form class="rform" id="reqForm" novalidate>
+    <h4>Request gear for a shoot</h4>
+    <label class="f"><span>Where is the shoot taking place? *</span><input id="rq-location" value="${esc(d.location||"")}" placeholder="e.g. Holgate jetty, LBI"></label>
+    <fieldset class="rgear"><legend>What gear do you need? *</legend>
+      ${GEAR.map(g => `<label class="chk"><input type="checkbox" data-gear="${esc(g)}"${d.gear.includes(g)?" checked":""}><span>${esc(g)}</span></label>`).join("")}
+      <label class="chk"><input type="checkbox" id="rq-otherchk"${d.otherOn?" checked":""}><span>Other</span></label>
+      <input id="rq-other" class="othertx" placeholder="Tell us what else you need" value="${esc(d.other||"")}"${d.otherOn?"":" hidden"}>
+    </fieldset>
+    <label class="f"><span>Sizes</span><input id="rq-sizes" value="${esc(d.sizes||"")}" placeholder="e.g. Tees M and L, Boardshorts 32"></label>
+    <div class="rdates">
+      <label class="f"><span>Need it by *</span><input type="date" id="rq-needBy" min="${today}" value="${esc(d.needBy||"")}"></label>
+      <label class="f"><span>Shoot date</span><input type="date" id="rq-shootDate" min="${today}" value="${esc(d.shootDate||"")}"></label>
+    </div>
+    <label class="f"><span>Notes</span><textarea id="rq-notes" placeholder="Who's modeling, the look you're going for, anything else">${esc(d.notes||"")}</textarea></label>
+    ${REQ.err ? `<div class="note">${esc(REQ.err)}</div>` : ""}
+    <div class="rbtns"><button type="submit" class="primary"${REQ.busy?" disabled":""}>${REQ.busy ? "Sending…" : "Submit request"}</button>
+      <button type="button" class="ghost" id="rq-cancel">Cancel</button></div>
+  </form>`;
+}
+function requestsSection(){
+  if (REQ.mine === null) { REQ.mine = "loading"; loadMyRequests(); }
+  const mine = Array.isArray(REQ.mine) ? REQ.mine : [];
+  return `<section class="rsec"><div class="rhead"><h3 class="psec">Photoshoot gear requests</h3>
+      ${REQ.form ? "" : `<button type="button" class="primary small" id="rq-open">Request gear for a shoot</button>`}</div>
+    ${REQ.done ? `<div class="okbox"><b>Request sent</b>We've got it. We'll reach out about getting you the gear.</div>` : ""}
+    ${REQ.form ? reqForm() : ""}
+    ${REQ.mine === "loading" ? `<p class="hint">Loading your requests…</p>` : REQ.mine && REQ.mine.error ? `<p class="hint">Couldn't load your requests.</p>`
+      : mine.length ? `<div class="rlist">${mine.map(r => reqCard(r)).join("")}</div>` : (REQ.form ? "" : `<p class="hint">No requests yet. Planning a shoot? Let us know what gear you need.</p>`)}
+  </section>`;
+}
+function staffRequestsPanel(){
+  if (REQ.all === null) { REQ.all = "loading"; loadAllRequests(); }
+  const all = Array.isArray(REQ.all) ? REQ.all : [];
+  const shown = all.filter(r => REQ.filter === "All" || r.status === REQ.filter);
+  return `<div class="ambh"><div class="pwho"><span class="av big dark">↗</span><div><small>Staff</small><h2>Gear requests</h2>
+      <p class="hint">Photoshoot gear requests from every ambassador, newest first.</p></div></div></div>
+    <div class="chips rfilt">${["Open","Sent","Done","Declined","All"].map(f => `<button type="button" class="chip" data-rfilter="${f}" aria-pressed="${REQ.filter===f}">${f}${f!=="All" ? ` <small>${all.filter(r=>r.status===f).length}</small>` : ""}</button>`).join("")}</div>
+    ${REQ.all === "loading" ? `<p class="hint pload">Loading requests…</p>` : REQ.all && REQ.all.error ? `<p class="hint pload">Couldn't load requests.</p>`
+      : shown.length ? `<div class="rlist">${shown.map(r => reqCard(r, true)).join("")}</div>` : `<p class="hint pload">No ${REQ.filter === "All" ? "" : REQ.filter.toLowerCase() + " "}requests.</p>`}`;
+}
+function readDraft(){
+  const d = REQ.draft, v = id => ($(id) ? $(id).value : "");
+  d.location = v("rq-location"); d.other = v("rq-other"); d.sizes = v("rq-sizes"); d.needBy = v("rq-needBy"); d.shootDate = v("rq-shootDate"); d.notes = v("rq-notes");
+  d.otherOn = !!($("rq-otherchk") && $("rq-otherchk").checked);
+  d.gear = [...document.querySelectorAll("#reqForm [data-gear]")].filter(x => x.checked).map(x => x.dataset.gear);
+}
+async function submitRequest(){
+  readDraft(); const d = REQ.draft;
+  if (!d.location.trim()) { REQ.err = "Add where the shoot is taking place."; return renderProfile(); }
+  if (!d.gear.length && !(d.otherOn && d.other.trim())) { REQ.err = "Choose at least one kind of gear."; return renderProfile(); }
+  if (d.otherOn && !d.other.trim()) { REQ.err = "Tell us what the Other gear is."; return renderProfile(); }
+  if (!d.needBy) { REQ.err = "Add the date you need the gear by."; return renderProfile(); }
+  REQ.err = ""; REQ.busy = true; renderProfile();
+  try {
+    await reqApi("new", { request: { location: d.location, gear: d.gear, other: d.otherOn ? d.other : "", sizes: d.sizes, needBy: d.needBy, shootDate: d.shootDate, notes: d.notes } });
+    REQ.form = false; REQ.done = true; REQ.draft = { gear: [] }; REQ.mine = null; REQ.all = null;
+  } catch (e) { REQ.err = e.message; }
+  REQ.busy = false; renderProfile();
 }
 function renderProfile(){
   const body = $("profBody");
   if (!isStaff()) { body.classList.remove("staffgrid"); body.innerHTML = myPanel(); return; }
   body.classList.add("staffgrid");
   const keepScroll = body.querySelector(".alist")?.scrollTop || 0;
-  body.innerHTML = staffSidebar() + `<section class="pmain">${ADM.open ? ambPanel() : myPanel()}</section>`;
+  if (REQ.all === null) { REQ.all = "loading"; loadAllRequests(); }
+  body.innerHTML = staffSidebar() + `<section class="pmain">${ADM.open === "__requests" ? staffRequestsPanel() : ADM.open ? ambPanel() : myPanel()}</section>`;
   const l = body.querySelector(".alist"); if (l) l.scrollTop = keepScroll;
 }
 $("who").addEventListener("click", openProfile);
 $("profBack").addEventListener("click", closeProfile);
 $("profBody").addEventListener("input", e => {
+  if (e.target.closest && e.target.closest("#reqForm")) { readDraft(); return; }
   if (e.target.id !== "admQ") return;
   ADM.q = e.target.value; const pos = e.target.selectionStart; renderProfile();
   const q = $("admQ"); if (q) { q.focus(); q.setSelectionRange(pos, pos); }
 });
+$("profBody").addEventListener("submit", e => { if (e.target.id === "reqForm") { e.preventDefault(); submitRequest(); } });
+$("profBody").addEventListener("change", async e => {
+  if (e.target.id === "rq-otherchk") { const o = $("rq-other"); o.hidden = !e.target.checked; if (e.target.checked) o.focus(); return; }
+  const st = e.target.closest(".rstat");
+  if (st) { try { const j = await reqApi("status", { id: st.dataset.req, status: st.value }); const r = REQ.all.find(x => x.id === j.request.id); if (r) r.status = j.request.status; toast("Status updated"); } catch (x) { toast(x.message); } renderProfile(); }
+});
 $("profBody").addEventListener("click", e => {
+  if (e.target.id === "rq-open") { REQ.form = true; REQ.done = false; REQ.err = ""; renderProfile(); setTimeout(() => $("rq-location")?.focus(), 30); return; }
+  if (e.target.id === "rq-cancel") { readDraft(); REQ.form = false; REQ.err = ""; renderProfile(); return; }
+  const rf = e.target.closest("[data-rfilter]"); if (rf) { REQ.filter = rf.dataset.rfilter; renderProfile(); return; }
   const am = e.target.closest("[data-amb]");
-  if (am) { const id = am.dataset.amb || null; ADM.open = id; if (id && !ADM.data[id]) loadAmb(id); renderProfile();
+  if (am) { const id = am.dataset.amb || null; ADM.open = id; if (id && id !== "__requests" && !ADM.data[id]) loadAmb(id); renderProfile();
     if (matchMedia("(max-width:860px)").matches) document.querySelector(".pmain")?.scrollIntoView({ behavior: "smooth", block: "start" }); return; }
   const h = e.target.closest("[data-season]"); if (!h) return;
   profOpen = profOpen === h.dataset.season ? null : h.dataset.season; renderProfile();
