@@ -2,7 +2,17 @@
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex,nofollow">
-<title>Jetty Ambassador Store</title>
+<title>Jetty Ambassador</title>
+<meta name="application-name" content="Jetty Ambassador">
+<meta name="apple-mobile-web-app-title" content="Jetty Ambassador">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#43575E">
+<link rel="icon" type="image/png" sizes="32x32" href="brand/favicon-32.png">
+<link rel="icon" type="image/png" sizes="48x48" href="brand/favicon-48.png">
+<link rel="icon" type="image/png" sizes="192x192" href="brand/icon-192.png">
+<link rel="apple-touch-icon" sizes="180x180" href="brand/apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Figtree:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
 <style>[hidden]{display:none!important}body{margin:0}img{max-width:100%}
@@ -527,11 +537,16 @@ body.noscroll{overflow:hidden}
 .ometa .o{color:var(--warn);font-weight:600}
 
 @media(max-width:760px){.twocol{grid-template-columns:1fr}}
+/* season indicator */
+.seasonpill{display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--slate);background:var(--accent-soft);border:1px solid #cfdcdf;border-radius:999px;padding:4px 11px 4px 9px;white-space:nowrap}
+.seasonpill i{width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px rgba(45,122,75,.15)}
+.seasonpill b{font-weight:700;letter-spacing:.02em}
+.band .brand span#seasonLbl{font-size:12px;letter-spacing:.3em}
 </style></head><body>
 <header class="top">
   <div class="band">
     <div class="wrap bar1">
-      <div class="brand"><span class="wm"><b>Jetty</b><img class="coin" src="brand/logo-white.png" alt="" width="40" height="40"></span><span id="seasonLbl">Ambassador Store</span></div>
+      <div class="brand"><span class="wm"><b>Jetty</b><img class="coin" src="brand/logo-white.png" alt="" width="40" height="40"></span><span id="seasonLbl">Ambassador</span></div>
       <nav class="dept" id="dept" aria-label="Departments">
         <button type="button" data-d="mens" aria-pressed="true">Mens</button>
         <button type="button" data-d="acc" aria-pressed="false">Accessories</button>
@@ -547,6 +562,7 @@ body.noscroll{overflow:hidden}
     </div>
   </div>
   <div class="wrap allow">
+    <span class="seasonpill" title="This store is set up for the Summer 2027 season"><i aria-hidden="true"></i>Now ordering: <b id="seasonNow">Summer 2027</b></span>
     <span class="lbl">Your allowance</span>
     <div class="meter" id="meter" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Allowance used"><i id="meterUsed" class="used"></i><i id="meterFill"></i></div>
     <span class="nums" id="nums"></span>
@@ -574,7 +590,7 @@ body.noscroll{overflow:hidden}
 
 <div class="modal" id="gate" hidden>
   <div class="pick">
-    <div class="brand"><span class="wm"><b>Jetty</b><img class="coin" src="brand/logo-slate.png" alt="" width="40" height="40"></span><span id="gateSeason">Ambassador Store</span></div>
+    <div class="brand"><span class="wm"><b>Jetty</b><img class="coin" src="brand/logo-slate.png" alt="" width="40" height="40"></span><span id="gateSeason">Ambassador</span></div>
     <h2 id="gateH">Use your personal link</h2>
     <p id="gateP">This store opens from the personal link in your invitation email. Open that email and tap the link to start your order.</p>
     <p class="hint" id="gateC"></p>
@@ -680,9 +696,9 @@ async function loadSpent(){
   if (!$("drawer").hidden) renderCart();
 }
 function renderHeader(){
-  const lbl = CONFIG.season + " Ambassador Store";
-  $("seasonLbl").textContent = $("gateSeason").textContent = lbl;
-  document.title = "Jetty " + lbl;
+  $("seasonLbl").textContent = $("gateSeason").textContent = "Ambassador";
+  $("seasonNow").textContent = CONFIG.season;
+  document.title = "Jetty Ambassador";
   if (!S.me) return;
   $("whoNm").textContent = S.me.n + (S.me.t ? " (test)" : "");
   $("whoAv").textContent = initials(S.me.n);

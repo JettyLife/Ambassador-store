@@ -521,8 +521,8 @@ async function handleOrder(input) {
 }
 
 /* ---------- http ---------- */
-const TYPES = { ".html": "text/html; charset=utf-8", ".json": "application/json", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp", ".txt": "text/plain", ".css": "text/css", ".js": "text/javascript", ".svg": "image/svg+xml" };
-const PUBLIC = /^\/(index\.html|robots\.txt|a\/[0-9a-f]{20}\.json|(img|brand)\/[^/]+\.(jpg|jpeg|png|webp))?$/i;
+const TYPES = { ".html": "text/html; charset=utf-8", ".json": "application/json", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp", ".txt": "text/plain", ".css": "text/css", ".js": "text/javascript", ".svg": "image/svg+xml", ".webmanifest": "application/manifest+json" };
+const PUBLIC = /^\/(index\.html|robots\.txt|manifest\.webmanifest|a\/[0-9a-f]{20}\.json|(img|brand)\/[^/]+\.(jpg|jpeg|png|webp))?$/i;
 function send(res, status, body, type = "application/json") {
   res.writeHead(status, { "Content-Type": type, "Cache-Control": "no-store", "X-Robots-Tag": "noindex" });
   res.end(typeof body === "string" || Buffer.isBuffer(body) ? body : JSON.stringify(body));
@@ -541,7 +541,8 @@ http.createServer(async (req, res) => {
       return send(res, 200, { ok: true });
     }
     // Everything except the login page's own logo/pattern needs the site password.
-    if (!isAuthed(req) && !/^\/brand\/[^/]+\.png$/.test(url.pathname)) {
+    if (url.pathname === "/favicon.ico") return fs.readFile(path.join(ROOT, "brand/favicon-48.png"), (e, b) => send(res, e ? 404 : 200, e ? "" : b, "image/png"));
+    if (!isAuthed(req) && !/^\/(brand\/[^/]+\.png|manifest\.webmanifest)$/.test(url.pathname)) {
       if (url.pathname.startsWith("/api/")) return send(res, 401, { ok: false, error: "Please sign in again." });
       return fs.readFile(path.join(ROOT, "login.html"), (err, buf) => send(res, err ? 500 : 200, err ? "Error" : buf, "text/html; charset=utf-8"));
     }
