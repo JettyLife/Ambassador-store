@@ -280,15 +280,21 @@ async function seasonOverview(roster, fresh) {
     if (units <= 0) continue;
     if (!seasons.has(s.code)) seasons.set(s.code, { code: s.code, label: s.label, sort: s.sort, people: new Map() });
     const ppl = seasons.get(s.code).people;
-    if (!ppl.has(amb.id)) ppl.set(amb.id, { id: amb.id, n: amb.n, allowance: s.code === cur?.code ? amb.a : (amb.pa || {})[s.code] ?? null, orders: 0, units: 0, retail: 0, pending: 0, last: "" });
+    if (!ppl.has(amb.id)) ppl.set(amb.id, { id: amb.id, n: amb.n, allowance: s.code === cur?.code ? amb.a : (amb.pa || {})[s.code] ?? null, orders: 0, units: 0, retail: 0, pending: 0, last: "", items: {} });
     const p = ppl.get(amb.id);
+    if (String(o.credit_status || "").toLowerCase() !== "cancelled") for (const it of (o.order_items || [])) {
+      const q = Number(it.qty || 0) - Number(it.qty_cxl || 0); if (q <= 0) continue;
+      const st = String(it.style_number || ""), k = st + "|" + String(it.size || "");
+      if (!p.items[k]) p.items[k] = { s: st, d: String(it.description || ""), c: String(it.attr_2 || ""), z: String(it.size || ""), q: 0 };
+      p.items[k].q += q;
+    }
     p.orders++; p.units += units; p.retail += retail;
     if (String(o.credit_status || "").toLowerCase() === "pending") p.pending++;
     if (String(o.date || "") > p.last) p.last = String(o.date || "");
   }
   if (cur && !seasons.has(cur.code)) seasons.set(cur.code, { code: cur.code, label: cur.label, sort: cur.sort, people: new Map() });
   const data = [...seasons.values()].sort((a, b) => b.sort - a.sort).map(s => {
-    const people = [...s.people.values()].map(p => ({ ...p, retail: Math.round(p.retail * 100) / 100 })).sort((a, b) => a.n.localeCompare(b.n));
+    const people = [...s.people.values()].map(p => ({ ...p, items: Object.values(p.items), retail: Math.round(p.retail * 100) / 100 })).sort((a, b) => a.n.localeCompare(b.n));
     const orderedIds = new Set(people.map(p => p.id));
     return { code: s.code, label: s.label, current: s.code === cur?.code, people,
       notOrdered: roster.filter(r => !orderedIds.has(r.id)).map(r => ({ id: r.id, n: r.n, allowance: s.code === cur?.code ? r.a : (r.pa || {})[s.code] ?? null })),
