@@ -542,9 +542,9 @@ body.noscroll{overflow:hidden}
 .seasonpill i{width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px rgba(45,122,75,.15)}
 .seasonpill b{font-weight:700;letter-spacing:.02em}
 .band .brand span#seasonLbl{font-size:12px;letter-spacing:.3em}
-.pfilter{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;margin-top:14px}
-.pfilter .search{margin:0;flex:1 1 320px}
-.pfilter .search input{width:100%}
+
+
+
 .pfres{font-size:13.5px;color:var(--muted)}
 .pfres b{color:var(--ink)}
 .pfres .link{margin:0 0 0 6px}
@@ -552,6 +552,10 @@ body.noscroll{overflow:hidden}
 .ohits{flex-basis:100%;display:flex;flex-wrap:wrap;gap:4px;margin-top:3px}
 .ohits span{font-size:12px;background:var(--accent-soft);color:var(--slate);border-radius:4px;padding:2px 7px}
 .ohits em{font-style:normal;font-weight:600}
+.asideh .pfres{font-size:12.5px;color:var(--muted)}
+.asideh .pfres b{color:var(--ink)}
+.asideh .pfres .link{margin:0 0 0 6px}
+.aside .hitline{color:var(--slate);white-space:normal}
 </style></head><body>
 <header class="top">
   <div class="band">
@@ -1128,6 +1132,25 @@ const PTABS = [["orders","Past Orders"],["requests","Photo Gear Requests"],["upl
 const STAFF_TABS = [["seasons","Orders by Season"]];
 let SEAS = { data: null, pick: null, sort: "n", prod: "" };
 const prodName = st => { const p = PRODUCTS.find(x => x.s === st); return p ? `${p.d} – ${p.c}` : ""; };
+function allItemsBySeason(){
+  if (!Array.isArray(SEAS.data)) return [];
+  return SEAS.data.flatMap(s => s.people.flatMap(p => (p.items || []).map(it => ({ ...it, id: p.id, season: s.label }))));
+}
+function productHits(q){
+  if (!Array.isArray(SEAS.data)) { if (SEAS.data === null) { SEAS.data = "loading"; loadSeasons(); } return new Map(); }
+  const m = new Map();
+  for (const it of allItemsBySeason()) if (itemMatches(it, q)) { if (!m.has(it.id)) m.set(it.id, []); m.get(it.id).push(it); }
+  return m;
+}
+function prodOptions(){
+  return [...new Map(allItemsBySeason().map(it => [it.s, it])).values()]
+    .map(it => ({ s: it.s, label: (prodName(it.s) || (it.d + (it.c ? " – " + it.c : ""))) + " · " + it.s })).sort((a, b) => a.label.localeCompare(b.label));
+}
+function prodStatus(){
+  if (!Array.isArray(SEAS.data)) return "Loading every ambassador's orders…";
+  const h = productHits(SEAS.prod.trim()); let u = 0; h.forEach(list => list.forEach(x => u += x.q));
+  return `<b>${h.size}</b> ambassador${h.size===1?"":"s"} · <b>${u}</b> unit${u===1?"":"s"}`;
+}
 function itemMatches(it, q){
   if (!q) return true;
   const hay = (it.s + " " + it.d + " " + it.c + " " + prodName(it.s)).toLowerCase();
@@ -1151,20 +1174,13 @@ function seasonsPanel(){
   const s = SEAS.data.find(x => x.code === SEAS.pick) || SEAS.data[0];
   if (!s) return head + `<p class="hint pload">No ambassador orders yet.</p>`;
   const sorters = { n: (a,b) => a.n.localeCompare(b.n), retail: (a,b) => b.retail - a.retail, last: (a,b) => String(b.last).localeCompare(String(a.last)) };
-  const q = SEAS.prod.trim();
-  let people = s.people.slice().sort(sorters[SEAS.sort] || sorters.n);
-  if (q) people = people.map(p => ({ ...p, hits: (p.items || []).filter(it => itemMatches(it, q)) })).filter(p => p.hits.length);
-  const hitUnits = q ? people.reduce((t, p) => t + p.hits.reduce((u, h) => u + h.q, 0), 0) : 0;
-  const styleOpts = [...new Map(s.people.flatMap(p => p.items || []).map(it => [it.s, it])).values()]
-    .map(it => ({ s: it.s, label: (prodName(it.s) || (it.d + (it.c ? " – " + it.c : ""))) + " · " + it.s })).sort((a, b) => a.label.localeCompare(b.label));
+  const q = "";
+  const people = s.people.slice().sort(sorters[SEAS.sort] || sorters.n);
   const t = s.totals;
   return head + `<div class="chips rfilt">${SEAS.data.map(x => `<button type="button" class="chip" data-seas="${esc(x.code)}" aria-pressed="${x.code===s.code}">${esc(x.label)} <small>${x.totals.ambassadors}</small></button>`).join("")}</div>
     <div class="psum five"><div><small>Ambassadors ordered</small><b>${t.ambassadors}<span>/${t.ambassadors + s.notOrdered.length}</span></b></div>
       <div><small>Orders</small><b>${t.orders}</b></div><div><small>Units</small><b>${t.units}</b></div>
       <div><small>Retail value</small><b>${money(t.retail)}</b></div><div><small>Pending</small><b>${t.pending}</b></div></div>
-    <div class="pfilter"><label class="search"><span aria-hidden="true">⌕</span><input id="prodQ" type="search" list="prodList" placeholder="Filter by product: style, name or color" value="${esc(SEAS.prod)}" aria-label="Filter by product"></label>
-      <datalist id="prodList">${styleOpts.map(o => `<option value="${esc(o.s)}">${esc(o.label)}</option>`).join("")}</datalist>
-      ${q ? `<span class="pfres"><b>${people.length}</b> ambassador${people.length===1?"":"s"} ordered <b>${hitUnits}</b> unit${hitUnits===1?"":"s"} matching “${esc(q)}” <button type="button" class="link" id="prodClear">Clear</button></span>` : ""}</div>
     <div class="twocol${q ? " single" : ""}">
       <section class="ocol"><div class="ocolh"><h4>Ordered <small>${people.length}</small></h4>
         <div class="osort">Sort: ${[["n","Name"],["retail","Retail"],["last","Latest"]].map(([k,l]) => `<button type="button" data-ssort="${k}" aria-pressed="${SEAS.sort===k}">${l}</button>`).join("")}</div></div>
@@ -1192,13 +1208,19 @@ function profileSidebar(){
   const nav = `<nav class="pnav" aria-label="Profile">${PTABS.map(([k,l]) => `<button type="button" class="pnavb${!ADM.open && PTAB===k ? " on" : ""}" data-ptab="${k}">${l}${k==="requests" && openReq ? ` <small>${openReq} open</small>` : ""}${k==="upload" ? ` <small>Soon</small>` : ""}</button>`).join("")}</nav>`;
   if (!staff) return `<aside class="aside">${nav}</aside>`;
   const snav = `<nav class="pnav staffnav" aria-label="Staff">${STAFF_TABS.map(([k,l]) => `<button type="button" class="pnavb${!ADM.open && PTAB===k ? " on" : ""}" data-ptab="${k}">${l}</button>`).join("")}</nav>`;
-  const q = ADM.q.toLowerCase();
-  const list = S.me.roster.filter(r => !q || (r.n + " " + r.e + " " + r.amc).toLowerCase().includes(q));
+  const q = ADM.q.toLowerCase(), pq = SEAS.prod.trim(), hits = pq ? productHits(pq) : null;
+  const list = S.me.roster.filter(r => (!q || (r.n + " " + r.e + " " + r.amc).toLowerCase().includes(q)) && (!hits || hits.has(r.id)));
   return `<aside class="aside">${nav}${snav}
     <div class="asideh"><h3>Ambassadors <small>${S.me.roster.length}</small></h3>
-      <label class="search"><span aria-hidden="true">⌕</span><input id="admQ" type="search" placeholder="Find an ambassador" value="${esc(ADM.q)}" aria-label="Find an ambassador"></label></div>
+      <label class="search"><span aria-hidden="true">⌕</span><input id="admQ" type="search" placeholder="Find an ambassador" value="${esc(ADM.q)}" aria-label="Find an ambassador"></label>
+      <label class="search"><span aria-hidden="true">▢</span><input id="prodQ" type="search" list="prodList" placeholder="Who ordered a product?" value="${esc(SEAS.prod)}" aria-label="Filter ambassadors by product ordered"></label>
+      <datalist id="prodList">${prodOptions().map(o => `<option value="${esc(o.s)}">${esc(o.label)}</option>`).join("")}</datalist>
+      ${SEAS.prod.trim() ? `<div class="pfres">${prodStatus()} <button type="button" class="link" id="prodClear">Clear</button></div>` : ""}</div>
     <div class="alist">${list.map(r => `<button type="button" class="aname${ADM.open === r.id ? " on" : ""}" data-amb="${esc(r.id)}">
-        <span class="av">${esc(initials(r.n))}</span><span class="atx"><b>${esc(r.n)}</b><small>${money(r.a)} · ${esc(r.amc || "No AM customer")}</small></span></button>`).join("") || `<p class="hint">No match.</p>`}</div>
+        <span class="av">${esc(initials(r.n))}</span><span class="atx"><b>${esc(r.n)}</b>${hits && hits.get(r.id)
+          ? `<small class="hitline">${hits.get(r.id).map(h => `${h.q} × ${esc(prodName(h.s) || h.d)} ${esc(h.z)} · ${esc(h.season)}`).join("<br>")}</small>`
+          : `<small>${money(r.a)} · ${esc(r.amc || "No AM customer")}</small>`}</span></button>`).join("")
+        || `<p class="hint">${pq && !Array.isArray(SEAS.data) ? "Loading orders…" : "No match."}</p>`}</div>
   </aside>`;
 }
 function seasonsHTML(seasons, ns){
@@ -1321,6 +1343,7 @@ async function submitRequest(){
 function renderProfile(){
   const body = $("profBody"), staff = isStaff();
   if (staff && REQ.all === null) { REQ.all = "loading"; loadAllRequests(); }
+  if (staff && SEAS.data === null) { SEAS.data = "loading"; loadSeasons(); }
   const keepScroll = body.querySelector(".alist")?.scrollTop || 0;
   const main = ADM.open && staff ? ambPanel()
     : PTAB === "requests" ? (staff ? staffRequestsPanel() : requestsSection())
