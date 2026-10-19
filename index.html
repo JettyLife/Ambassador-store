@@ -605,6 +605,9 @@ button.alink{font:inherit;font-size:13px;background:var(--surface);cursor:pointe
 .gconn{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;border:1px solid var(--warn);background:var(--warn-soft);border-radius:var(--r);padding:10px 14px;font-size:14px;margin:4px 0 8px}
 .gconn.on{border-color:var(--ok);background:#e4f1e9}
 .gconn small{color:var(--muted)}
+.acbox li{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.acbox kbd{font:inherit;font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;color:var(--slate);border:1px solid #cfdcdf;border-radius:4px;padding:1px 6px;background:var(--surface)}
+@media (hover:none){.acbox kbd{display:none}}
 </style></head><body>
 <header class="top">
   <div class="band">
@@ -1430,8 +1433,10 @@ function showAc(kind){
   const inp = $("up-" + kind), box = $("ac-" + kind); if (!inp || !box) return;
   const list = kind === "location" ? UPOPT.locations : UPOPT.photographers;
   const items = inp.value.trim() ? suggestions(inp.value, list) : list.slice(0, 6).map(name => ({ name }));
-  AC = { kind, items, idx: -1 };
-  box.innerHTML = items.map((x, i) => `<li role="option" data-acpick="${esc(x.name)}" data-ackind="${kind}" id="aco-${kind}-${i}">${esc(x.name)}</li>`).join("");
+  // While typing, the best match is pre-highlighted so Enter fills it in.
+  const idx = inp.value.trim() && items.length ? 0 : -1;
+  AC = { kind, items, idx };
+  box.innerHTML = items.map((x, i) => `<li role="option" class="${i === idx ? "on" : ""}" data-acpick="${esc(x.name)}" data-ackind="${kind}" id="aco-${kind}-${i}">${esc(x.name)}${i === idx ? `<kbd>Enter</kbd>` : ""}</li>`).join("");
   box.hidden = !items.length; inp.setAttribute("aria-expanded", String(!!items.length));
 }
 function hideAc(){ document.querySelectorAll("#upModal .acbox").forEach(b => b.hidden = true); AC = { kind: null, items: [], idx: -1 }; }
@@ -1647,10 +1652,18 @@ $("upModal").addEventListener("click", e => {
   if (e.target.id === "up-date") { try { e.target.showPicker(); } catch (x) {} }
 });
 $("upModal").addEventListener("keydown", e => {
-  if (AC.kind && e.target.id === "up-" + AC.kind && AC.items.length && ["ArrowDown","ArrowUp","Enter"].includes(e.key)) {
-    if (e.key === "Enter") { if (AC.idx >= 0) { e.preventDefault(); pickAc(AC.kind, AC.items[AC.idx].name); } return; }
+  const acKind = (e.target.id || "").match(/^up-(location|photographer)$/);
+  if (acKind && e.key === "Enter") {          // Enter fills the highlighted name on file (or the same name typed with different caps); never submits the form
+    e.preventDefault();
+    const kind = acKind[1], list = kind === "location" ? UPOPT.locations : UPOPT.photographers, cm = closeMatch(e.target.value, list);
+    if (cm && cm.exact) pickAc(kind, cm.exact);
+    else if (AC.kind === kind && AC.idx >= 0 && AC.items[AC.idx]) pickAc(kind, AC.items[AC.idx].name);
+    else { hideAc(); settleAc(kind); }
+    return;
+  }
+  if (AC.kind && e.target.id === "up-" + AC.kind && AC.items.length && ["ArrowDown","ArrowUp"].includes(e.key)) {
     e.preventDefault(); AC.idx = (AC.idx + (e.key === "ArrowDown" ? 1 : -1) + AC.items.length) % AC.items.length;
-    document.querySelectorAll(`#ac-${AC.kind} li`).forEach((li, i) => li.classList.toggle("on", i === AC.idx)); e.target.setAttribute("aria-activedescendant", `aco-${AC.kind}-${AC.idx}`); return;
+    document.querySelectorAll(`#ac-${AC.kind} li`).forEach((li, i) => { li.classList.toggle("on", i === AC.idx); const k = li.querySelector("kbd"); if (k) k.remove(); if (i === AC.idx) li.insertAdjacentHTML("beforeend", "<kbd>Enter</kbd>"); }); e.target.setAttribute("aria-activedescendant", `aco-${AC.kind}-${AC.idx}`); return;
   }
   if (e.target.id === "up-date" && e.key !== "Tab" && e.key !== "Escape") e.preventDefault(); if (e.key === "Escape" && !UP.busy) { readUp(); UP.open = false; renderUpModal(); } });
 $("upModal").addEventListener("focusin", e => { const k = (e.target.id || "").match(/^up-(location|photographer)$/); if (k) showAc(k[1]); });
