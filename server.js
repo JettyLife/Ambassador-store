@@ -450,6 +450,136 @@ function newRequest(me, f) {
   return r;
 }
 
+/* ---------- content uploads to Google Drive ----------
+   Railway variables:
+     GOOGLE_SERVICE_ACCOUNT_JSON  the service account's JSON key (whole file contents)
+     DRIVE_ROOT_FOLDER_ID         folder that holds one folder per ambassador (default: Jetty's Fileshare folder)
+   Layout: <root>/<Ambassador Name>/<YYYY-MM-DD> - <Description>/  (files + "Upload info.txt")
+   Files go straight from the ambassador's browser to Google (resumable upload sessions), not through this server. */
+const DRIVE_ROOT = process.env.DRIVE_ROOT_FOLDER_ID || "1ff5nCjSfAlN_j7ZH76BodiezKfJsWdHv";
+let SA = null; try { if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON) SA = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON); } catch (e) { console.error("GOOGLE_SERVICE_ACCOUNT_JSON is not valid JSON"); }
+let gTok = { token: "", exp: 0 };
+const GAPI = process.env.GOOGLE_API_BASE || "https://www.googleapis.com/", GTOKEN = process.env.GOOGLE_TOKEN_URL || "https://oauth2.googleapis.com/token";
+async function googleToken() {
+  if (!SA) throw Object.assign(new Error("Uploads aren't switched on yet."), { status: 503 });
+  if (gTok.token && Date.now() < gTok.exp - 60000) return gTok.token;
+  const now = Math.floor(Date.now() / 1000), b64 = o => Buffer.from(JSON.stringify(o)).toString("base64url");
+  const unsigned = b64({ alg: "RS256", typ: "JWT" }) + "." + b64({ iss: SA.client_email, scope: "https://www.googleapis.com/auth/drive", aud: "https://oauth2.googleapis.com/token", iat: now, exp: now + 3600 });
+  const jwt = unsigned + "." + crypto.createSign("RSA-SHA256").update(unsigned).sign(SA.private_key, "base64url");
+  const r = await fetch(GTOKEN, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: "grant_type=" + encodeURIComponent("urn:ietf:params:oauth:grant-type:jwt-bearer") + "&assertion=" + jwt });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j.access_token) throw new Error("Google sign-in failed: " + JSON.stringify(j).slice(0, 200));
+  gTok = { token: j.access_token, exp: Date.now() + (j.expires_in || 3600) * 1000 };
+  return gTok.token;
+}
+async function gdrive(pathAndQuery, opts = {}) {
+  const r = await fetch(GAPI + pathAndQuery, { ...opts, headers: { Authorization: "Bearer " + await googleToken(), ...(opts.headers || {}) } });
+  if (opts.raw) return r;
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(`Drive ${r.status}: ${JSON.stringify(j.error || j).slice(0, 300)}`);
+  return j;
+}
+const ALL = "supportsAllDrives=true&includeItemsFromAllDrives=true";
+const folderName = s => String(s || "").replace(/[\/\\:*?"<>|]/g, " ").replace(/\s+/g, " ").trim().slice(0, 120);
+async function findFolder(name, parent) {
+  const q = `name = '${name.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}' and '${parent}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+  const j = await gdrive(`drive/v3/files?${ALL}&corpora=allDrives&fields=files(id,name)&q=${encodeURIComponent(q)}`);
+  return (j.files || [])[0] || null;
+}
+async function makeFolder(name, parent) {
+  return gdrive(`drive/v3/files?supportsAllDrives=true&fields=id,name,webViewLink`, { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, mimeType: "application/vnd.google-apps.folder", parents: [parent] }) });
+}
+const FOLDERS_FILE = () => path.join(DATA_DIR, "drive-folders.json");
+function readJson(f, d) { try { return JSON.parse(fs.readFileSync(f, "utf8")); } catch (e) { return d; } }
+function writeJson(f, v) { fs.mkdirSync(DATA_DIR, { recursive: true }); fs.writeFileSync(f + ".tmp", JSON.stringify(v, null, 1)); fs.renameSync(f + ".tmp", f); }
+// A: one folder per ambassador, created the first time and reused after that (remembered by ambassador id).
+async function ambassadorFolder(me) {
+  const map = readJson(FOLDERS_FILE(), {});
+  if (map[me.id]) {
+    try { const f = await gdrive(`drive/v3/files/${map[me.id]}?supportsAllDrives=true&fields=id,trashed`); if (!f.trashed) return map[me.id]; } catch (e) {}
+  }
+  const name = folderName(me.n);
+  const f = (await findFolder(name, DRIVE_ROOT)) || (await makeFolder(name, DRIVE_ROOT));
+  map[me.id] = f.id; writeJson(FOLDERS_FILE(), map);
+  return f.id;
+}
+async function uploadText(name, parent, text, fileId) {
+  const boundary = "jas" + crypto.randomBytes(8).toString("hex");
+  const meta = fileId ? {} : { name, parents: [parent], mimeType: "text/plain" };
+  const body = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${boundary}\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n${text}\r\n--${boundary}--`;
+  return gdrive(`upload/drive/v3/files${fileId ? "/" + fileId : ""}?uploadType=multipart&supportsAllDrives=true&fields=id`,
+    { method: fileId ? "PATCH" : "POST", headers: { "Content-Type": `multipart/related; boundary=${boundary}` }, body });
+}
+async function resumableSession(file, parent, origin) {
+  const r = await gdrive(`upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true&fields=id,name,size`, { raw: true, method: "POST",
+    headers: { "Content-Type": "application/json; charset=UTF-8", "X-Upload-Content-Type": file.type || "application/octet-stream",
+               "X-Upload-Content-Length": String(file.size), ...(origin ? { Origin: origin } : {}) },
+    body: JSON.stringify({ name: folderName(file.name) || "upload", parents: [parent] }) });
+  if (!r.ok) throw new Error(`Drive upload session ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  return r.headers.get("location");
+}
+const UPLOADS_FILE = () => path.join(DATA_DIR, "uploads.json");
+function uploadInfo(me, f, files, status) {
+  const L = [
+    "Jetty Ambassador content upload", "",
+    `Ambassador: ${me.n}`, `Email: ${me.e || ""}`, `Submitted: ${new Date().toLocaleString("en-US", { timeZone: "America/New_York" })} ET`, "",
+    `Date: ${f.date}`, `Description: ${f.desc}`, `Location: ${f.location}`,
+    `Content: ${[f.photo && "Photo", f.video && "Video"].filter(Boolean).join(" + ")}`,
+    `Jetty product in photos: ${f.product}`, `Photographer / videographer: ${f.photographer}`, "",
+    "Shoot notes:", f.notes || "(none)", "",
+    `Files (${files.length}):`, ...files.map(x => `- ${x.name} (${(x.size / 1048576).toFixed(1)} MB)${x.status ? " - " + x.status : ""}`),
+  ];
+  if (status) L.push("", status);
+  return L.join("\n");
+}
+async function startUpload(me, form, files, origin) {
+  const f = {
+    date: isDate(form.date) ? form.date : "", desc: clip(form.desc, 12), location: clip(form.location, 500),
+    photo: !!form.photo, video: !!form.video, product: form.product === "Yes" ? "Yes" : form.product === "No" ? "No" : "",
+    photographer: clip(form.photographer, 120), notes: clip(form.notes, 5000),
+  };
+  if (!f.date) throw Object.assign(new Error("Pick the date from the calendar."), { status: 400 });
+  if (!f.desc) throw Object.assign(new Error("Add a short description (12 characters max)."), { status: 400 });
+  if (!f.location) throw Object.assign(new Error("Add the location."), { status: 400 });
+  if (!f.photo && !f.video) throw Object.assign(new Error("Check Photo, Video, or both."), { status: 400 });
+  if (!f.product) throw Object.assign(new Error("Answer whether there's Jetty product in the photos."), { status: 400 });
+  if (!f.photographer) throw Object.assign(new Error("Add the photographer or videographer's name."), { status: 400 });
+  const list = (Array.isArray(files) ? files : []).slice(0, 200).map((x, i) => ({ i, name: String(x.name || "file").slice(0, 200), size: Math.max(0, Number(x.size) || 0), type: String(x.type || "") }))
+    .map(x => ({ ...x, type: x.type || (/\.(jpe?g)$/i.test(x.name) ? "image/jpeg" : /\.png$/i.test(x.name) ? "image/png" : /\.(heic|heif)$/i.test(x.name) ? "image/heic"
+      : /\.(dng|cr2|cr3|nef|arw|raf|orf|rw2)$/i.test(x.name) ? "image/x-raw" : /\.(mov)$/i.test(x.name) ? "video/quicktime" : /\.(mp4|m4v)$/i.test(x.name) ? "video/mp4" : "") }))
+    .filter(x => x.size > 0 && /^(image|video)\//.test(x.type));
+  if (!list.length) throw Object.assign(new Error("Add at least one photo or video."), { status: 400 });
+  const amb = await ambassadorFolder(me);
+  // B: "<date> - <description>" subfolder; a second upload with the same name gets " (2)", " (3)"...
+  let base = folderName(`${f.date} - ${f.desc}`), name = base, n = 2;
+  while (await findFolder(name, amb)) name = `${base} (${n++})`;
+  const sub = await makeFolder(name, amb);
+  // C: the form answers as a text file in the folder
+  const info = await uploadText("Upload info.txt", sub.id, uploadInfo(me, f, list));
+  const sessions = [];
+  for (const x of list) sessions.push({ i: x.i, name: x.name, url: await resumableSession(x, sub.id, origin) });
+  const rec = { id: "UP-" + Date.now().toString(36).toUpperCase(), at: new Date().toISOString(), test: !!me.t, who: { id: me.id, n: me.n, e: me.e },
+    form: f, folder: { id: sub.id, name, url: sub.webViewLink || `https://drive.google.com/drive/folders/${sub.id}` }, infoId: info.id, files: list, done: false };
+  const all = readJson(UPLOADS_FILE(), []); all.push(rec); writeJson(UPLOADS_FILE(), all);
+  console.log(JSON.stringify({ event: "upload_started", id: rec.id, who: me.n, folder: name, files: list.length }));
+  return { uploadId: rec.id, folder: rec.folder.name, sessions };
+}
+async function finishUpload(me, id, results) {
+  const all = readJson(UPLOADS_FILE(), []), rec = all.find(r => r.id === id && r.who.id === me.id);
+  if (!rec) throw Object.assign(new Error("Upload not found."), { status: 404 });
+  const ok = new Set((Array.isArray(results) ? results : []).filter(r => r && r.ok).map(r => Number(r.i)));
+  rec.files = rec.files.map(x => ({ ...x, status: ok.has(x.i) ? "uploaded" : "NOT uploaded" }));
+  rec.done = true; rec.uploaded = rec.files.filter(x => x.status === "uploaded").length;
+  const missing = rec.files.length - rec.uploaded;
+  try { await uploadText("Upload info.txt", null, uploadInfo(me, rec.form, rec.files, missing ? `${missing} file(s) did not finish uploading.` : "All files uploaded."), rec.infoId); }
+  catch (e) { console.error(JSON.stringify({ event: "upload_info_update_failed", error: e.message })); }
+  writeJson(UPLOADS_FILE(), all);
+  console.log(JSON.stringify({ event: "upload_finished", id, uploaded: rec.uploaded, missing }));
+  return { uploaded: rec.uploaded, missing, folder: rec.folder.name };
+}
+
 /* ---------- order ---------- */
 const seen = new Map(); // orderId -> result (stops double submits)
 async function handleOrder(input) {
@@ -615,6 +745,22 @@ http.createServer(async (req, res) => {
         return send(res, e.message === "bad_code" || e.code === "ENOENT" ? 403 : 500, { ok: false, error: "Something went wrong. Try again." });
       }
     }
+    if (req.method === "POST" && url.pathname.startsWith("/api/uploads/")) {
+      let raw = ""; for await (const c of req) { raw += c; if (raw.length > 200000) return send(res, 413, { ok: false }); }
+      try {
+        const body = JSON.parse(raw), me = unlock(String(body.code || "").toUpperCase()), action = url.pathname.slice("/api/uploads/".length);
+        const origin = req.headers.origin || `https://${req.headers.host}`;
+        if (action === "start") return send(res, 200, { ok: true, ...(await startUpload(me, body.form || {}, body.files || [], origin)) });
+        if (action === "finish") return send(res, 200, { ok: true, ...(await finishUpload(me, String(body.uploadId || ""), body.results)) });
+        if (action === "mine") return send(res, 200, { ok: true, enabled: !!SA, uploads: readJson(UPLOADS_FILE(), []).filter(r => r.who.id === me.id).reverse() });
+        if (action === "all") { if (!me.admin) return send(res, 403, { ok: false }); return send(res, 200, { ok: true, enabled: !!SA, uploads: readJson(UPLOADS_FILE(), []).reverse() }); }
+        return send(res, 404, { ok: false });
+      } catch (e) {
+        if (e.status) return send(res, e.status, { ok: false, error: e.message });
+        console.error(JSON.stringify({ event: "upload_error", error: e.message }));
+        return send(res, e.message === "bad_code" || e.code === "ENOENT" ? 403 : 502, { ok: false, error: "The upload couldn't be set up. Try again in a minute." });
+      }
+    }
     if (req.method === "POST" && url.pathname === "/api/admin/seasons") {
       let raw = ""; for await (const c of req) { raw += c; if (raw.length > 2000) return send(res, 413, { ok: false }); }
       try {
@@ -653,7 +799,7 @@ http.createServer(async (req, res) => {
       } catch (e) { return send(res, 502, { ok: false, error: e.message }); }
     }
     if (url.pathname === "/api/health") {
-      const out = { ok: true, build: BUILD, savedRequests: readRequests().length, tokenSet: !!AM_TOKEN, dryRun: DRY_RUN, dataDir: DATA_DIR, persistentStorage: DATA_DIR === "/data", subdomain: AM_BASE.split("//")[1].split(".")[0] };
+      const out = { ok: true, build: BUILD, uploadsEnabled: !!SA, uploadsAccount: SA ? SA.client_email : null, savedRequests: readRequests().length, tokenSet: !!AM_TOKEN, dryRun: DRY_RUN, dataDir: DATA_DIR, persistentStorage: DATA_DIR === "/data", subdomain: AM_BASE.split("//")[1].split(".")[0] };
       if (url.searchParams.get("check") === "1" && process.env.ADMIN_KEY && url.searchParams.get("key") === process.env.ADMIN_KEY) {
         try { out.warehouseId = await warehouseId(); out.divisionId = await divisionId(); out.amReachable = true; } catch (e) { out.amReachable = false; out.amError = e.message; }
       }

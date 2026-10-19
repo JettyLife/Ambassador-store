@@ -560,6 +560,39 @@ body.noscroll{overflow:hidden}
 button.alink{font:inherit;font-size:13px;background:var(--surface);cursor:pointer}
 .linkline{flex-basis:100%;font-size:12px;color:var(--muted)}
 .linkline .code{font-family:var(--f-mono);font-size:11.5px;user-select:all;overflow-wrap:anywhere}
+/* upload modal */
+.upmodal{position:fixed;inset:0;z-index:80;background:rgba(8,18,24,.5);display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:calc(env(safe-area-inset-top,0px) + 4vh) 16px 40px}
+.upcard{width:min(620px,100%);background:var(--surface);border-radius:10px;padding:20px 22px 22px;box-shadow:0 20px 50px rgba(0,0,0,.25)}
+.uph{display:flex;justify-content:space-between;align-items:center}
+.upcard h2{margin:0 0 6px;font-family:var(--f-display);font-size:28px;text-transform:uppercase;letter-spacing:.02em}
+.upform{display:flex;flex-direction:column;gap:14px;margin-top:6px}
+.upwho{font-size:14px;color:var(--muted);background:var(--accent-soft);border-radius:var(--r);padding:8px 12px}
+.upwho b{color:var(--ink)}
+.uprow2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.upform .f em{font-style:normal;float:right;font-variant-numeric:tabular-nums}
+.upform textarea{width:100%;min-height:90px;font:inherit;font-size:15px;border:1px solid var(--line);border-radius:var(--r);padding:10px 11px;background:var(--bg)}
+#up-date{cursor:pointer}
+.upex{font-size:12.5px;color:var(--muted);display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:-6px}
+.upex button{all:unset;cursor:pointer;border:1px solid var(--line);border-radius:999px;padding:3px 10px;color:var(--slate);background:var(--bg)}
+.upex button:hover{border-color:var(--slate)}
+.upchk{border:0;padding:0;margin:0;display:flex;gap:8px;flex-wrap:wrap}
+.upchk legend{font-size:12px;color:var(--muted);padding:0;margin-bottom:8px;width:100%}
+.upchk .chk{min-width:110px}
+.drop{position:relative;border:2px dashed var(--line);border-radius:var(--r);padding:22px;text-align:center;background:var(--bg);display:flex;flex-direction:column;gap:4px;color:var(--muted)}
+.drop b{color:var(--ink);font-size:15px}
+.drop.over{border-color:var(--slate);background:var(--accent-soft)}
+.drop input{position:absolute;inset:0;opacity:0;cursor:pointer}
+.uplist{display:flex;flex-direction:column;gap:6px;max-height:260px;overflow:auto}
+.upf{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;font-size:13px;border:1px solid var(--line);border-radius:var(--r);padding:6px 10px}
+.upf .nm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.upf .sz{color:var(--muted);font-variant-numeric:tabular-nums}
+.upf .bar{grid-column:1/-2;height:6px;background:var(--tile);border-radius:999px;overflow:hidden}
+.upf .bar i{display:block;height:100%;background:var(--slate);transition:width .2s}
+.upf .pc{font-size:12px;font-variant-numeric:tabular-nums;color:var(--muted)}
+.uptot{font-size:12.5px;color:var(--muted);text-align:right}
+.upfolder{font-size:13px;color:var(--muted)}
+.upfolder b{font-family:var(--f-mono);font-size:12.5px;color:var(--ink)}
+@media(max-width:520px){.uprow2{grid-template-columns:1fr}}
 </style></head><body>
 <header class="top">
   <div class="band">
@@ -631,6 +664,7 @@ button.alink{font:inherit;font-size:13px;background:var(--surface);cursor:pointe
   </div></div>
   <div class="wrap pbody" id="profBody"></div>
 </div>
+<div class="upmodal" id="upModal" hidden role="dialog" aria-modal="true" aria-labelledby="upTitle"><div class="upcard" id="upCard"></div></div>
 <div class="toast" id="toast" hidden></div>
 
 <script>
@@ -1209,7 +1243,7 @@ async function pickedUp(btn){
 function profileSidebar(){
   const staff = isStaff();
   const openReq = staff && Array.isArray(REQ.all) ? REQ.all.filter(r => r.status === "Open").length : 0;
-  const nav = `<nav class="pnav" aria-label="Profile">${PTABS.map(([k,l]) => `<button type="button" class="pnavb${!ADM.open && PTAB===k ? " on" : ""}" data-ptab="${k}">${l}${k==="requests" && openReq ? ` <small>${openReq} open</small>` : ""}${k==="upload" ? ` <small>Soon</small>` : ""}</button>`).join("")}</nav>`;
+  const nav = `<nav class="pnav" aria-label="Profile">${PTABS.map(([k,l]) => `<button type="button" class="pnavb${!ADM.open && PTAB===k ? " on" : ""}" data-ptab="${k}">${l}${k==="requests" && openReq ? ` <small>${openReq} open</small>` : ""}</button>`).join("")}</nav>`;
   if (!staff) return `<aside class="aside">${nav}</aside>`;
   const snav = `<nav class="pnav staffnav" aria-label="Staff">${STAFF_TABS.map(([k,l]) => `<button type="button" class="pnavb${!ADM.open && PTAB===k ? " on" : ""}" data-ptab="${k}">${l}</button>`).join("")}</nav>`;
   const q = ADM.q.toLowerCase(), pq = SEAS.prod.trim(), hits = pq ? productHits(pq) : null;
@@ -1256,8 +1290,113 @@ function myPanel(){
     : seasonsHTML(PROF.seasons || []);
   return `<h3 class="psec">Past Orders</h3>` + orders;
 }
+/* ===== Upload Content (to Jetty's Google Drive) ===== */
+let UP = { list: null, enabled: true, staffList: null, open: false, f: { photo: false, video: false, product: "" }, files: [], err: "", busy: false, prog: {}, result: null };
+const EXAMPLES = ["Surf OBX", "Hike NY", "Alaska", "Costa Trip", "Nica Surf"];
+const mb = n => (n / 1048576 >= 1000 ? (n / 1073741824).toFixed(1) + " GB" : (n / 1048576).toFixed(1) + " MB");
+async function upApi(action, extra){
+  const r = await fetch("/api/uploads/" + action, { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ code: S.code, ...(extra || {}) }) });
+  const j = await r.json().catch(() => ({})); if (!r.ok || !j.ok) throw new Error(j.error || "Something went wrong. Try again."); return j;
+}
+async function loadUploads(){
+  try { const j = await upApi(isStaff() ? "all" : "mine"); UP.enabled = j.enabled; if (isStaff()) UP.staffList = j.uploads; else UP.list = j.uploads; }
+  catch (e) { if (isStaff()) UP.staffList = { error: true }; else UP.list = { error: true }; }
+  renderProfile();
+}
+function uploadRow(u, staff){
+  const n = u.uploaded ?? u.files.length;
+  return `<article class="rcard ${u.done && n === u.files.length ? "st-done" : "st-open"}"><div class="rtop"><div><b>${staff ? esc(u.who.n) + " · " : ""}${esc(u.folder.name)}</b>
+      <small>Submitted ${fmtDate(u.at.slice(0,10))}${u.test ? " · TEST" : ""}</small></div>
+      ${staff ? `<a class="alink" href="${esc(u.folder.url)}" target="_blank" rel="noopener">Open folder ↗</a>` : `<span class="rpill">${u.done ? n + " of " + u.files.length + " uploaded" : "In progress"}</span>`}</div>
+    <dl class="rdl"><dt>Location</dt><dd>${esc(u.form.location)}</dd><dt>Content</dt><dd>${[u.form.photo && "Photo", u.form.video && "Video"].filter(Boolean).join(" + ")} · Jetty product: ${esc(u.form.product)}</dd>
+      <dt>Shot by</dt><dd>${esc(u.form.photographer)}</dd>${staff ? `<dt>Files</dt><dd>${n} of ${u.files.length} uploaded</dd>` : ""}</dl></article>`;
+}
 function uploadPanel(){
-  return `<h3 class="psec">Upload Content</h3><div class="soon"><b>Coming soon</b><p>You'll be able to upload the photos and video you've shot for Jetty right here.</p></div>`;
+  const staff = isStaff(), key = staff ? "staffList" : "list";
+  if (UP[key] === null) { UP[key] = "loading"; loadUploads(); }
+  const L = UP[key];
+  return `<div class="rhead"><h3 class="psec">Upload Content</h3>
+      <button type="button" class="primary small" id="up-open"${UP.enabled ? "" : " disabled"}>Upload photos or video</button></div>
+    <p class="hint">Send us the photos and video you've shot for Jetty. A short form asks about the shoot, then your files go straight to our team's drive.</p>
+    ${UP.enabled ? "" : `<div class="note">Uploads aren't switched on yet. Check back soon.</div>`}
+    ${UP.result ? `<div class="okbox"><b>Upload complete</b>${UP.result.uploaded} file${UP.result.uploaded===1?"":"s"} sent to “${esc(UP.result.folder)}”.${UP.result.missing ? ` ${UP.result.missing} didn't finish. Try those again in a new upload.` : " Thank you!"}</div>` : ""}
+    <h3 class="psec">${staff ? "All uploads" : "Your uploads"}</h3>
+    ${L === "loading" ? `<p class="hint">Loading…</p>` : L && L.error ? `<p class="hint">Couldn't load uploads.</p>`
+      : Array.isArray(L) && L.length ? `<div class="rlist">${L.map(u => uploadRow(u, staff)).join("")}</div>` : `<p class="hint">No uploads yet.</p>`}`;
+}
+function upForm(){
+  const f = UP.f, folder = `${f.date || "YYYY-MM-DD"} - ${f.desc || "Description"}`, total = UP.files.reduce((t, x) => t + x.size, 0);
+  if (UP.busy) {
+    const done = Object.values(UP.prog).filter(v => v === 100).length;
+    return `<h2 id="upTitle">Uploading…</h2><p class="hint">Keep this window open until it finishes. ${done} of ${UP.files.length} done.</p>
+      <div class="uplist">${UP.files.map(x => `<div class="upf"><span class="nm">${esc(x.name)}</span><span class="sz">${mb(x.size)}</span>
+        <span class="bar"><i style="width:${UP.prog[x.name] || 0}%"></i></span><span class="pc">${UP.prog[x.name] === -1 ? "Failed" : (UP.prog[x.name] || 0) + "%"}</span></div>`).join("")}</div>`;
+  }
+  return `<div class="uph"><h2 id="upTitle">Upload content</h2><button type="button" class="x" id="up-close" aria-label="Close">×</button></div>
+  <form id="upForm" novalidate class="upform">
+    <div class="upwho">Uploading as <b>${esc(S.me.n)}</b></div>
+    <div class="uprow2">
+      <label class="f"><span>Date *</span><input type="date" id="up-date" value="${esc(f.date||"")}" required></label>
+      <label class="f"><span>Description * <em id="up-count">${(f.desc||"").length}/12</em></span><input id="up-desc" maxlength="12" value="${esc(f.desc||"")}" placeholder="e.g. Surf OBX" autocomplete="off"></label>
+    </div>
+    <div class="upex">Examples: ${EXAMPLES.map(x => `<button type="button" data-ex="${esc(x)}">${esc(x)}</button>`).join("")}</div>
+    <label class="f"><span>Location *</span><input id="up-location" value="${esc(f.location||"")}" placeholder="Where was this shot?"></label>
+    <fieldset class="upchk"><legend>Photo or video? *</legend>
+      <label class="chk"><input type="checkbox" id="up-photo"${f.photo?" checked":""}><span>Photo</span></label>
+      <label class="chk"><input type="checkbox" id="up-video"${f.video?" checked":""}><span>Video</span></label></fieldset>
+    <fieldset class="upchk"><legend>Is there Jetty product in the photos? *</legend>
+      <label class="chk"><input type="radio" name="up-product" value="Yes"${f.product==="Yes"?" checked":""}><span>Yes</span></label>
+      <label class="chk"><input type="radio" name="up-product" value="No"${f.product==="No"?" checked":""}><span>No</span></label></fieldset>
+    <label class="f"><span>Photographer / videographer *</span><input id="up-photographer" value="${esc(f.photographer||"")}" placeholder="Who shot it?"></label>
+    <label class="f"><span>Shoot notes</span><textarea id="up-notes" placeholder="Anything of note about that day, a funny story, how the weather was, etc.">${esc(f.notes||"")}</textarea></label>
+    <div class="drop" id="up-drop"><input type="file" id="up-files" multiple accept="image/*,video/*,.heic,.dng,.cr2,.cr3,.nef,.arw,.mov,.mp4">
+      <b>Drop photos or video here</b><span>or tap to choose files</span></div>
+    ${UP.files.length ? `<div class="uplist">${UP.files.map((x,i) => `<div class="upf"><span class="nm">${esc(x.name)}</span><span class="sz">${mb(x.size)}</span><button type="button" class="link" data-rmfile="${i}">Remove</button></div>`).join("")}
+      <div class="uptot">${UP.files.length} file${UP.files.length===1?"":"s"} · ${mb(total)}</div></div>` : ""}
+    <div class="upfolder">Saved to folder: <b>${esc(folder)}</b></div>
+    ${UP.err ? `<div class="note">${esc(UP.err)}</div>` : ""}
+    <div class="rbtns"><button type="submit" class="primary">Upload${UP.files.length ? " " + UP.files.length + " file" + (UP.files.length===1?"":"s") : ""}</button><button type="button" class="ghost" id="up-cancel">Cancel</button></div>
+  </form>`;
+}
+function renderUpModal(){ $("upModal").hidden = !UP.open; if (UP.open) $("upCard").innerHTML = upForm(); }
+function readUp(){
+  const f = UP.f, v = id => ($(id) ? $(id).value : "");
+  if (!$("upForm")) return;
+  f.date = v("up-date"); f.desc = v("up-desc").slice(0, 12); f.location = v("up-location"); f.photographer = v("up-photographer"); f.notes = v("up-notes");
+  f.photo = $("up-photo").checked; f.video = $("up-video").checked;
+  f.product = (document.querySelector('input[name="up-product"]:checked') || {}).value || "";
+}
+function addFiles(list){
+  for (const file of list) if (!UP.files.some(x => x.name === file.name && x.size === file.size)) UP.files.push(file);
+  UP.err = ""; renderUpModal();
+}
+function putFile(url, file){
+  return new Promise(resolve => {
+    const x = new XMLHttpRequest(); x.open("PUT", url);
+    x.upload.onprogress = e => { if (e.lengthComputable) { UP.prog[file.name] = Math.min(99, Math.round(e.loaded / e.total * 100)); renderUpModal(); } };
+    x.onload = () => { const ok = x.status >= 200 && x.status < 300; UP.prog[file.name] = ok ? 100 : -1; renderUpModal(); resolve(ok); };
+    x.onerror = () => { UP.prog[file.name] = -1; renderUpModal(); resolve(false); };
+    x.send(file);
+  });
+}
+async function submitUpload(){
+  readUp(); const f = UP.f;
+  const miss = !f.date ? "Pick the date from the calendar." : !f.desc.trim() ? "Add a short description (12 characters max)." : !f.location.trim() ? "Add the location."
+    : !(f.photo || f.video) ? "Check Photo, Video, or both." : !f.product ? "Answer whether there's Jetty product in the photos."
+    : !f.photographer.trim() ? "Add the photographer or videographer's name." : !UP.files.length ? "Add at least one photo or video." : "";
+  if (miss) { UP.err = miss; return renderUpModal(); }
+  UP.err = ""; UP.busy = true; UP.prog = {}; renderUpModal();
+  let start;
+  try { start = await upApi("start", { form: f, files: UP.files.map(x => ({ name: x.name, size: x.size, type: x.type })) }); }
+  catch (e) { UP.busy = false; UP.err = e.message; return renderUpModal(); }
+  const results = []; const queue = UP.files.map((file, i) => ({ file, i }));
+  async function worker(){ while (queue.length) { const { file, i } = queue.shift(); const s = start.sessions.find(z => z.i === i);
+    if (!s) { UP.prog[file.name] = -1; renderUpModal(); continue; }   // not a photo/video file
+    let ok = await putFile(s.url, file); if (!ok) ok = await putFile(s.url, file); results.push({ i, name: file.name, ok }); } }
+  await Promise.all([worker(), worker()]);
+  try { UP.result = await upApi("finish", { uploadId: start.uploadId, results }); } catch (e) { UP.result = { uploaded: results.filter(r => r.ok).length, missing: results.filter(r => !r.ok).length, folder: start.folder }; }
+  UP.busy = false; UP.open = false; UP.files = []; UP.f = { photo: false, video: false, product: "" }; UP.list = null; UP.staffList = null;
+  renderUpModal(); renderProfile();
 }
 
 /* ===== Photoshoot gear requests ===== */
@@ -1379,6 +1518,7 @@ $("profBody").addEventListener("change", async e => {
   if (st) { try { const j = await reqApi("status", { id: st.dataset.req, status: st.value }); const r = REQ.all.find(x => x.id === j.request.id); if (r) r.status = j.request.status; toast("Status updated"); } catch (x) { toast(x.message); } renderProfile(); }
 });
 $("profBody").addEventListener("click", e => {
+  if (e.target.id === "up-open") { UP.open = true; UP.result = null; UP.err = ""; renderUpModal(); setTimeout(() => $("up-date")?.focus(), 30); return; }
   if (e.target.id === "rq-open") { REQ.form = true; REQ.done = false; REQ.err = ""; renderProfile(); setTimeout(() => $("rq-location")?.focus(), 30); return; }
   if (e.target.id === "rq-cancel") { readDraft(); REQ.form = false; REQ.err = ""; renderProfile(); return; }
   const sp = e.target.closest("[data-seas]"); if (sp) { SEAS.pick = sp.dataset.seas; renderProfile(); return; }
@@ -1407,6 +1547,23 @@ $("profBody").addEventListener("click", e => {
   profOpen = profOpen === h.dataset.season ? null : h.dataset.season; renderProfile();
 });
 document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("profile").hidden) closeProfile(); });
+
+$("upModal").addEventListener("click", e => {
+  if (UP.busy) return;
+  if (e.target.id === "upModal" || e.target.id === "up-close" || e.target.id === "up-cancel") { readUp(); UP.open = false; renderUpModal(); return; }
+  const ex = e.target.closest("[data-ex]"); if (ex) { readUp(); UP.f.desc = ex.dataset.ex; renderUpModal(); return; }
+  const rm = e.target.closest("[data-rmfile]"); if (rm) { readUp(); UP.files.splice(Number(rm.dataset.rmfile), 1); renderUpModal(); return; }
+  if (e.target.id === "up-date") { try { e.target.showPicker(); } catch (x) {} }
+});
+$("upModal").addEventListener("keydown", e => { if (e.target.id === "up-date" && e.key !== "Tab" && e.key !== "Escape") e.preventDefault(); if (e.key === "Escape" && !UP.busy) { readUp(); UP.open = false; renderUpModal(); } });
+$("upModal").addEventListener("input", e => { if (e.target.id === "up-desc") { const c = $("up-count"); if (c) c.textContent = e.target.value.length + "/12"; }
+  readUp(); const fo = document.querySelector(".upfolder b"); if (fo) fo.textContent = `${UP.f.date || "YYYY-MM-DD"} - ${UP.f.desc || "Description"}`; });
+$("upModal").addEventListener("change", e => { if (e.target.id === "up-files") { readUp(); addFiles(e.target.files); } else readUp(); });
+$("upModal").addEventListener("submit", e => { if (e.target.id === "upForm") { e.preventDefault(); submitUpload(); } });
+$("upModal").addEventListener("dragover", e => { const d = e.target.closest("#up-drop"); if (d) { e.preventDefault(); d.classList.add("over"); } });
+$("upModal").addEventListener("dragleave", e => { const d = e.target.closest("#up-drop"); if (d) d.classList.remove("over"); });
+$("upModal").addEventListener("drop", e => { const d = e.target.closest("#up-drop"); if (d) { e.preventDefault(); readUp(); addFiles(e.dataTransfer.files); } });
+window.addEventListener("beforeunload", e => { if (UP.busy) { e.preventDefault(); e.returnValue = ""; } });
 
 /* ===== Boot ===== */
 (async function boot(){
