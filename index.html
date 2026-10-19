@@ -556,6 +556,10 @@ body.noscroll{overflow:hidden}
 .asideh .pfres b{color:var(--ink)}
 .asideh .pfres .link{margin:0 0 0 6px}
 .aside .hitline{color:var(--slate);white-space:normal}
+.alinks{display:flex;gap:8px;flex-wrap:wrap}
+button.alink{font:inherit;font-size:13px;background:var(--surface);cursor:pointer}
+.linkline{flex-basis:100%;font-size:12px;color:var(--muted)}
+.linkline .code{font-family:var(--f-mono);font-size:11.5px;user-select:all;overflow-wrap:anywhere}
 </style></head><body>
 <header class="top">
   <div class="band">
@@ -1234,7 +1238,9 @@ function ambPanel(){
   const r = S.me.roster.find(x => x.id === ADM.open), d = ADM.data[r.id];
   return `<div class="ambh"><div class="pwho"><span class="av big dark">${esc(initials(r.n))}</span><div><small>Ambassador</small><h2>${esc(r.n)}</h2>
       <p class="hint">${esc(r.e)} · ${esc(r.amc || "No AM customer")} · PO <span class="code">${esc(r.po)}</span></p></div></div>
-      <a class="alink" href="/#${esc(r.code)}-V" target="_blank" rel="noopener">View their store ↗</a></div>
+      <div class="alinks"><button type="button" class="alink" data-copylink="${esc(r.code)}" title="Copy ${esc(r.n)}'s personal store link">Copy their link</button>
+        <a class="alink" href="/#${esc(r.code)}-V" target="_blank" rel="noopener">View their store ↗</a></div>
+      <div class="linkline"><span class="code" id="lk-${esc(r.id)}">${esc(location.origin + "/#" + r.code)}</span></div></div>
     ${!d ? `<p class="hint pload">Loading orders…</p>` : d.error ? `<p class="hint pload">Couldn't load orders. Try again.</p>` : seasonsHTML(d.seasons || [], "a:" + r.id)}`;
 }
 async function loadAmb(id){
@@ -1377,6 +1383,15 @@ $("profBody").addEventListener("click", e => {
   if (e.target.id === "rq-cancel") { readDraft(); REQ.form = false; REQ.err = ""; renderProfile(); return; }
   const sp = e.target.closest("[data-seas]"); if (sp) { SEAS.pick = sp.dataset.seas; renderProfile(); return; }
   const ss = e.target.closest("[data-ssort]"); if (ss) { SEAS.sort = ss.dataset.ssort; renderProfile(); return; }
+  const cl = e.target.closest("[data-copylink]");
+  if (cl) {
+    const url = location.origin + "/#" + cl.dataset.copylink;
+    const done = () => { const t = cl.textContent; cl.textContent = "Copied ✓"; setTimeout(() => cl.textContent = t, 1600); toast("Link copied"); };
+    const fallback = () => { const s = cl.closest(".ambh").querySelector(".linkline .code"); const r = document.createRange(); r.selectNodeContents(s);
+      const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); toast("Link selected. Press Cmd+C to copy"); };
+    try { navigator.clipboard.writeText(url).then(done, fallback); } catch (x) { fallback(); }
+    return;
+  }
   if (e.target.id === "prodClear") { SEAS.prod = ""; renderProfile(); return; }
   if (e.target.id === "seasRefresh") { SEAS.data = "loading"; renderProfile(); loadSeasons(true); return; }
   const pk = e.target.closest("[data-pickup]");
