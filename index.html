@@ -593,6 +593,15 @@ button.alink{font:inherit;font-size:13px;background:var(--surface);cursor:pointe
 .upfolder{font-size:13px;color:var(--muted)}
 .upfolder b{font-family:var(--f-mono);font-size:12.5px;color:var(--ink)}
 @media(max-width:520px){.uprow2{grid-template-columns:1fr}}
+.upform .ro{border:1px solid var(--line);border-radius:var(--r);padding:10px 11px;background:var(--tile);font-size:15px}
+.upform .ro small{color:var(--muted)}
+.ac{position:relative}
+.acbox{position:absolute;z-index:5;left:0;right:0;top:100%;margin:2px 0 0;padding:4px;list-style:none;background:var(--surface);border:1px solid var(--slate);border-radius:var(--r);box-shadow:0 8px 20px rgba(0,0,0,.12);max-height:240px;overflow:auto}
+.acbox li{padding:8px 10px;border-radius:4px;cursor:pointer;font-size:14.5px}
+.acbox li:hover,.acbox li.on{background:var(--accent-soft)}
+.achint{font-size:12.5px;color:var(--muted);min-height:0}
+.achint:empty{display:none}
+.achint button{all:unset;cursor:pointer;color:var(--slate);font-weight:700;text-decoration:underline}
 </style></head><body>
 <header class="top">
   <div class="band">
@@ -1293,6 +1302,48 @@ function myPanel(){
 /* ===== Upload Content (to Jetty's Google Drive) ===== */
 let UP = { list: null, enabled: true, staffList: null, open: false, f: { photo: false, video: false, product: "" }, files: [], err: "", busy: false, prog: {}, result: null };
 const EXAMPLES = ["Surf OBX", "Hike NY", "Alaska", "Costa Trip", "Nica Surf"];
+let UPOPT = { locations: [], photographers: [], today: "", loaded: false };
+async function loadUpOptions(){
+  try { const j = await upApi("options"); UPOPT = { locations: j.locations || [], photographers: j.photographers || [], today: j.today || "", loaded: true }; } catch (e) {}
+}
+const localToday = () => { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0"); };
+/* Suggest-as-you-type: close spellings already on file, but any spelling is still allowed */
+const normTxt = s => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+function editDist(a, b){
+  const m = a.length, n = b.length; if (!m) return n; if (!n) return m;
+  let prev = Array.from({ length: n + 1 }, (_, j) => j), pp = null;
+  for (let i = 1; i <= m; i++) { const cur = [i];
+    for (let j = 1; j <= n; j++) { let v = Math.min(prev[j] + 1, cur[j-1] + 1, prev[j-1] + (a[i-1] === b[j-1] ? 0 : 1));
+      if (pp && i > 1 && j > 1 && a[i-1] === b[j-2] && a[i-2] === b[j-1]) v = Math.min(v, pp[j-2] + 1); cur.push(v); }
+    pp = prev; prev = cur; }
+  return prev[n];
+}
+const simil = (a, b) => 1 - editDist(a, b) / Math.max(a.length, b.length, 1);
+function matchScore(typed, name){
+  const t = normTxt(typed), c = normTxt(name); if (!t) return 0;
+  if (t === c) return 1;
+  if (c.startsWith(t)) return 0.95;
+  if (c.split(" ").some(w => w.startsWith(t))) return 0.9;
+  if (c.includes(t)) return 0.85;
+  const tw = t.split(" "), cw = c.split(" ");
+  if (tw.length > 1) {                                      // several words, each a (near) start of a word on file ("mat hig")
+    const per = tw.map(x => Math.max(...cw.map(w => w.startsWith(x) ? 1 : simil(x, w.slice(0, Math.max(x.length, 3))))));
+    if (per.every(v => v >= 0.66)) return 0.8 * per.reduce((a, b) => a + b, 0) / per.length;
+  }
+  let best = simil(t, c);                                   // whole thing misspelled ("matt higgens")
+  if (t.length >= 3) best = Math.max(best, simil(t, c.slice(0, t.length)) - 0.05);   // still typing ("nicor" ~ "nicar")
+  for (const w of c.split(" ")) if (t.length >= 3) best = Math.max(best, simil(t, w) - 0.05, simil(t, w.slice(0, t.length)) - 0.08);
+  return best >= 0.6 ? best * 0.8 : 0;
+}
+function suggestions(typed, list){
+  return list.map((name, i) => ({ name, s: matchScore(typed, name), i })).filter(x => x.s > 0 && normTxt(x.name) !== normTxt(typed))
+    .sort((a, b) => b.s - a.s || a.i - b.i).slice(0, 6);
+}
+function closeMatch(typed, list){
+  const t = normTxt(typed); if (!t) return null;
+  const exact = list.find(n => normTxt(n) === t); if (exact) return { exact };
+  const s = suggestions(typed, list)[0]; return s && s.s >= 0.55 ? { near: s.name } : null;
+}
 const mb = n => (n / 1048576 >= 1000 ? (n / 1073741824).toFixed(1) + " GB" : (n / 1048576).toFixed(1) + " MB");
 async function upApi(action, extra){
   const r = await fetch("/api/uploads/" + action, { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ code: S.code, ...(extra || {}) }) });
@@ -1308,7 +1359,7 @@ function uploadRow(u, staff){
   return `<article class="rcard ${u.done && n === u.files.length ? "st-done" : "st-open"}"><div class="rtop"><div><b>${staff ? esc(u.who.n) + " · " : ""}${esc(u.folder.name)}</b>
       <small>Submitted ${fmtDate(u.at.slice(0,10))}${u.test ? " · TEST" : ""}</small></div>
       ${staff ? `<a class="alink" href="${esc(u.folder.url)}" target="_blank" rel="noopener">Open folder ↗</a>` : `<span class="rpill">${u.done ? n + " of " + u.files.length + " uploaded" : "In progress"}</span>`}</div>
-    <dl class="rdl"><dt>Location</dt><dd>${esc(u.form.location)}</dd><dt>Content</dt><dd>${[u.form.photo && "Photo", u.form.video && "Video"].filter(Boolean).join(" + ")} · Jetty product: ${esc(u.form.product)}</dd>
+    <dl class="rdl"><dt>Shoot date</dt><dd>${fmtDate(u.form.shootDate || u.form.date)}</dd><dt>Location</dt><dd>${esc(u.form.location)}</dd><dt>Content</dt><dd>${[u.form.photo && "Photo", u.form.video && "Video"].filter(Boolean).join(" + ")} · Jetty product: ${esc(u.form.product)}</dd>
       <dt>Shot by</dt><dd>${esc(u.form.photographer)}</dd>${staff ? `<dt>Files</dt><dd>${n} of ${u.files.length} uploaded</dd>` : ""}</dl></article>`;
 }
 function uploadPanel(){
@@ -1325,7 +1376,7 @@ function uploadPanel(){
       : Array.isArray(L) && L.length ? `<div class="rlist">${L.map(u => uploadRow(u, staff)).join("")}</div>` : `<p class="hint">No uploads yet.</p>`}`;
 }
 function upForm(){
-  const f = UP.f, folder = `${f.date || "YYYY-MM-DD"} - ${f.desc || "Description"}`, total = UP.files.reduce((t, x) => t + x.size, 0);
+  const f = UP.f, folder = `${f.shootDate || "YYYY-MM-DD"} - ${f.desc || "Description"}`, total = UP.files.reduce((t, x) => t + x.size, 0);
   if (UP.busy) {
     const done = Object.values(UP.prog).filter(v => v === 100).length;
     return `<h2 id="upTitle">Uploading…</h2><p class="hint">Keep this window open until it finishes. ${done} of ${UP.files.length} done.</p>
@@ -1336,18 +1387,21 @@ function upForm(){
   <form id="upForm" novalidate class="upform">
     <div class="upwho">Uploading as <b>${esc(S.me.n)}</b></div>
     <div class="uprow2">
-      <label class="f"><span>Date *</span><input type="date" id="up-date" value="${esc(f.date||"")}" required></label>
+      <div class="f"><span>Date of Upload</span><div class="ro">${fmtDate(UPOPT.today || localToday())} <small>(today)</small></div></div>
+      <label class="f"><span>Date of Shoot *</span><input type="date" id="up-date" max="${esc(UPOPT.today || localToday())}" value="${esc(f.shootDate||"")}" required></label>
+    </div>
+    <div>
       <label class="f"><span>Description * <em id="up-count">${(f.desc||"").length}/12</em></span><input id="up-desc" maxlength="12" value="${esc(f.desc||"")}" placeholder="e.g. Surf OBX" autocomplete="off"></label>
     </div>
     <div class="upex">Examples: ${EXAMPLES.map(x => `<button type="button" data-ex="${esc(x)}">${esc(x)}</button>`).join("")}</div>
-    <label class="f"><span>Location *</span><input id="up-location" value="${esc(f.location||"")}" placeholder="Where was this shot?"></label>
+    ${acField("location", "Location *", f.location, "Where was this shot?")}
     <fieldset class="upchk"><legend>Photo or video? *</legend>
       <label class="chk"><input type="checkbox" id="up-photo"${f.photo?" checked":""}><span>Photo</span></label>
       <label class="chk"><input type="checkbox" id="up-video"${f.video?" checked":""}><span>Video</span></label></fieldset>
     <fieldset class="upchk"><legend>Is there Jetty product in the photos? *</legend>
       <label class="chk"><input type="radio" name="up-product" value="Yes"${f.product==="Yes"?" checked":""}><span>Yes</span></label>
       <label class="chk"><input type="radio" name="up-product" value="No"${f.product==="No"?" checked":""}><span>No</span></label></fieldset>
-    <label class="f"><span>Photographer / videographer *</span><input id="up-photographer" value="${esc(f.photographer||"")}" placeholder="Who shot it?"></label>
+    ${acField("photographer", "Photographer / videographer *", f.photographer, "Who shot it?")}
     <label class="f"><span>Shoot notes</span><textarea id="up-notes" placeholder="Anything of note about that day, a funny story, how the weather was, etc.">${esc(f.notes||"")}</textarea></label>
     <div class="drop" id="up-drop"><input type="file" id="up-files" multiple accept="image/*,video/*,.heic,.dng,.cr2,.cr3,.nef,.arw,.mov,.mp4">
       <b>Drop photos or video here</b><span>or tap to choose files</span></div>
@@ -1358,11 +1412,38 @@ function upForm(){
     <div class="rbtns"><button type="submit" class="primary">Upload${UP.files.length ? " " + UP.files.length + " file" + (UP.files.length===1?"":"s") : ""}</button><button type="button" class="ghost" id="up-cancel">Cancel</button></div>
   </form>`;
 }
+function acField(kind, label, val, ph){
+  const list = kind === "location" ? UPOPT.locations : UPOPT.photographers, cm = closeMatch(val, list);
+  return `<div class="f ac" data-ac="${kind}"><label for="up-${kind}"><span>${label}</span></label>
+    <input id="up-${kind}" value="${esc(val||"")}" placeholder="${ph}" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="ac-${kind}">
+    <ul class="acbox" id="ac-${kind}" role="listbox" hidden></ul>
+    <div class="achint" id="hint-${kind}">${cm && cm.near ? `Did you mean <button type="button" data-acpick="${esc(cm.near)}" data-ackind="${kind}">${esc(cm.near)}</button>? Keep yours if it's new.` : ""}</div></div>`;
+}
+let AC = { kind: null, items: [], idx: -1 };
+function showAc(kind){
+  const inp = $("up-" + kind), box = $("ac-" + kind); if (!inp || !box) return;
+  const list = kind === "location" ? UPOPT.locations : UPOPT.photographers;
+  const items = inp.value.trim() ? suggestions(inp.value, list) : list.slice(0, 6).map(name => ({ name }));
+  AC = { kind, items, idx: -1 };
+  box.innerHTML = items.map((x, i) => `<li role="option" data-acpick="${esc(x.name)}" data-ackind="${kind}" id="aco-${kind}-${i}">${esc(x.name)}</li>`).join("");
+  box.hidden = !items.length; inp.setAttribute("aria-expanded", String(!!items.length));
+}
+function hideAc(){ document.querySelectorAll("#upModal .acbox").forEach(b => b.hidden = true); AC = { kind: null, items: [], idx: -1 }; }
+function pickAc(kind, name){
+  const inp = $("up-" + kind); if (inp) inp.value = name; readUp(); hideAc();
+  const h = $("hint-" + kind); if (h) h.innerHTML = "";
+}
+function settleAc(kind){   // on leaving the field: same name with different caps/spaces snaps to the spelling on file; a near miss gets a hint
+  const inp = $("up-" + kind); if (!inp) return;
+  const list = kind === "location" ? UPOPT.locations : UPOPT.photographers, cm = closeMatch(inp.value, list), h = $("hint-" + kind);
+  if (cm && cm.exact && cm.exact !== inp.value.trim()) { inp.value = cm.exact; readUp(); }
+  if (h) h.innerHTML = cm && cm.near ? `Did you mean <button type="button" data-acpick="${esc(cm.near)}" data-ackind="${kind}">${esc(cm.near)}</button>? Keep yours if it's new.` : "";
+}
 function renderUpModal(){ $("upModal").hidden = !UP.open; if (UP.open) $("upCard").innerHTML = upForm(); }
 function readUp(){
   const f = UP.f, v = id => ($(id) ? $(id).value : "");
   if (!$("upForm")) return;
-  f.date = v("up-date"); f.desc = v("up-desc").slice(0, 12); f.location = v("up-location"); f.photographer = v("up-photographer"); f.notes = v("up-notes");
+  f.shootDate = v("up-date"); f.desc = v("up-desc").slice(0, 12); f.location = v("up-location"); f.photographer = v("up-photographer"); f.notes = v("up-notes");
   f.photo = $("up-photo").checked; f.video = $("up-video").checked;
   f.product = (document.querySelector('input[name="up-product"]:checked') || {}).value || "";
 }
@@ -1381,7 +1462,7 @@ function putFile(url, file){
 }
 async function submitUpload(){
   readUp(); const f = UP.f;
-  const miss = !f.date ? "Pick the date from the calendar." : !f.desc.trim() ? "Add a short description (12 characters max)." : !f.location.trim() ? "Add the location."
+  const miss = !f.shootDate ? "Pick the Date of Shoot from the calendar." : f.shootDate > (UPOPT.today || localToday()) ? "The Date of Shoot can't be after today." : !f.desc.trim() ? "Add a short description (12 characters max)." : !f.location.trim() ? "Add the location."
     : !(f.photo || f.video) ? "Check Photo, Video, or both." : !f.product ? "Answer whether there's Jetty product in the photos."
     : !f.photographer.trim() ? "Add the photographer or videographer's name." : !UP.files.length ? "Add at least one photo or video." : "";
   if (miss) { UP.err = miss; return renderUpModal(); }
@@ -1395,7 +1476,7 @@ async function submitUpload(){
     let ok = await putFile(s.url, file); if (!ok) ok = await putFile(s.url, file); results.push({ i, name: file.name, ok }); } }
   await Promise.all([worker(), worker()]);
   try { UP.result = await upApi("finish", { uploadId: start.uploadId, results }); } catch (e) { UP.result = { uploaded: results.filter(r => r.ok).length, missing: results.filter(r => !r.ok).length, folder: start.folder }; }
-  UP.busy = false; UP.open = false; UP.files = []; UP.f = { photo: false, video: false, product: "" }; UP.list = null; UP.staffList = null;
+  UP.busy = false; UP.open = false; UP.files = []; UP.f = { photo: false, video: false, product: "" }; UP.list = null; UPOPT.loaded = false; UP.staffList = null;
   renderUpModal(); renderProfile();
 }
 
@@ -1518,7 +1599,8 @@ $("profBody").addEventListener("change", async e => {
   if (st) { try { const j = await reqApi("status", { id: st.dataset.req, status: st.value }); const r = REQ.all.find(x => x.id === j.request.id); if (r) r.status = j.request.status; toast("Status updated"); } catch (x) { toast(x.message); } renderProfile(); }
 });
 $("profBody").addEventListener("click", e => {
-  if (e.target.id === "up-open") { UP.open = true; UP.result = null; UP.err = ""; renderUpModal(); setTimeout(() => $("up-date")?.focus(), 30); return; }
+  if (e.target.id === "up-open") { UP.open = true; UP.result = null; UP.err = ""; renderUpModal(); setTimeout(() => $("up-date")?.focus(), 30);
+    if (!UPOPT.loaded) loadUpOptions().then(() => { if (UP.open && !UP.busy) { readUp(); renderUpModal(); } }); return; }
   if (e.target.id === "rq-open") { REQ.form = true; REQ.done = false; REQ.err = ""; renderProfile(); setTimeout(() => $("rq-location")?.focus(), 30); return; }
   if (e.target.id === "rq-cancel") { readDraft(); REQ.form = false; REQ.err = ""; renderProfile(); return; }
   const sp = e.target.closest("[data-seas]"); if (sp) { SEAS.pick = sp.dataset.seas; renderProfile(); return; }
@@ -1551,13 +1633,25 @@ document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("profil
 $("upModal").addEventListener("click", e => {
   if (UP.busy) return;
   if (e.target.id === "upModal" || e.target.id === "up-close" || e.target.id === "up-cancel") { readUp(); UP.open = false; renderUpModal(); return; }
+  const ap = e.target.closest("[data-acpick]"); if (ap) { pickAc(ap.dataset.ackind, ap.dataset.acpick); return; }
+  if (!e.target.closest(".ac")) hideAc();
   const ex = e.target.closest("[data-ex]"); if (ex) { readUp(); UP.f.desc = ex.dataset.ex; renderUpModal(); return; }
   const rm = e.target.closest("[data-rmfile]"); if (rm) { readUp(); UP.files.splice(Number(rm.dataset.rmfile), 1); renderUpModal(); return; }
   if (e.target.id === "up-date") { try { e.target.showPicker(); } catch (x) {} }
 });
-$("upModal").addEventListener("keydown", e => { if (e.target.id === "up-date" && e.key !== "Tab" && e.key !== "Escape") e.preventDefault(); if (e.key === "Escape" && !UP.busy) { readUp(); UP.open = false; renderUpModal(); } });
-$("upModal").addEventListener("input", e => { if (e.target.id === "up-desc") { const c = $("up-count"); if (c) c.textContent = e.target.value.length + "/12"; }
-  readUp(); const fo = document.querySelector(".upfolder b"); if (fo) fo.textContent = `${UP.f.date || "YYYY-MM-DD"} - ${UP.f.desc || "Description"}`; });
+$("upModal").addEventListener("keydown", e => {
+  if (AC.kind && e.target.id === "up-" + AC.kind && AC.items.length && ["ArrowDown","ArrowUp","Enter"].includes(e.key)) {
+    if (e.key === "Enter") { if (AC.idx >= 0) { e.preventDefault(); pickAc(AC.kind, AC.items[AC.idx].name); } return; }
+    e.preventDefault(); AC.idx = (AC.idx + (e.key === "ArrowDown" ? 1 : -1) + AC.items.length) % AC.items.length;
+    document.querySelectorAll(`#ac-${AC.kind} li`).forEach((li, i) => li.classList.toggle("on", i === AC.idx)); e.target.setAttribute("aria-activedescendant", `aco-${AC.kind}-${AC.idx}`); return;
+  }
+  if (e.target.id === "up-date" && e.key !== "Tab" && e.key !== "Escape") e.preventDefault(); if (e.key === "Escape" && !UP.busy) { readUp(); UP.open = false; renderUpModal(); } });
+$("upModal").addEventListener("focusin", e => { const k = (e.target.id || "").match(/^up-(location|photographer)$/); if (k) showAc(k[1]); });
+$("upModal").addEventListener("focusout", e => { const k = (e.target.id || "").match(/^up-(location|photographer)$/);
+  if (k) setTimeout(() => { if (!document.activeElement || !document.activeElement.closest || document.activeElement.id !== e.target.id) { settleAc(k[1]); hideAc(); } }, 150); });
+$("upModal").addEventListener("input", e => { const k = (e.target.id || "").match(/^up-(location|photographer)$/); if (k) { showAc(k[1]); const h = $("hint-" + k[1]); if (h) h.innerHTML = ""; }
+  if (e.target.id === "up-desc") { const c = $("up-count"); if (c) c.textContent = e.target.value.length + "/12"; }
+  readUp(); const fo = document.querySelector(".upfolder b"); if (fo) fo.textContent = `${UP.f.shootDate || "YYYY-MM-DD"} - ${UP.f.desc || "Description"}`; });
 $("upModal").addEventListener("change", e => { if (e.target.id === "up-files") { readUp(); addFiles(e.target.files); } else readUp(); });
 $("upModal").addEventListener("submit", e => { if (e.target.id === "upForm") { e.preventDefault(); submitUpload(); } });
 $("upModal").addEventListener("dragover", e => { const d = e.target.closest("#up-drop"); if (d) { e.preventDefault(); d.classList.add("over"); } });

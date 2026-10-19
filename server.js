@@ -521,26 +521,59 @@ async function resumableSession(file, parent, origin) {
   return r.headers.get("location");
 }
 const UPLOADS_FILE = () => path.join(DATA_DIR, "uploads.json");
+const usDate = iso => { const m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})$/); return m ? `${m[2]}/${m[3]}/${m[1]}` : ""; };
+const todayET = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" }); // YYYY-MM-DD
+// Labeled lines first, in the order the Jetty media library reads them (see Ambassador Form Build.md).
 function uploadInfo(me, f, files, status) {
   const L = [
-    "Jetty Ambassador content upload", "",
-    `Ambassador: ${me.n}`, `Email: ${me.e || ""}`, `Submitted: ${new Date().toLocaleString("en-US", { timeZone: "America/New_York" })} ET`, "",
-    `Date: ${f.date}`, `Description: ${f.desc}`, `Location: ${f.location}`,
-    `Content: ${[f.photo && "Photo", f.video && "Video"].filter(Boolean).join(" + ")}`,
-    `Jetty product in photos: ${f.product}`, `Photographer / videographer: ${f.photographer}`, "",
-    "Shoot notes:", f.notes || "(none)", "",
+    `Name: ${me.n}`,
+    `Date of Upload: ${usDate(f.uploadDate)}`,
+    `Date of Shoot: ${usDate(f.shootDate)}`,
+    `Description: ${f.desc}`,
+    `Location: ${f.location}`,
+    `Photo: ${f.photo ? "yes" : "no"}`,
+    `Video: ${f.video ? "yes" : "no"}`,
+    `Is there Jetty product in photos? ${f.product === "Yes" ? "yes" : "no"}`,
+    `Photographer: ${f.photographer}`,
+    `Shoot Notes: ${String(f.notes || "").replace(/\r?\n/g, " ").trim()}`,
+    "",
+    "---",
+    `Ambassador email: ${me.e || ""}`,
+    `Submitted: ${new Date().toLocaleString("en-US", { timeZone: "America/New_York" })} ET`,
     `Files (${files.length}):`, ...files.map(x => `- ${x.name} (${(x.size / 1048576).toFixed(1)} MB)${x.status ? " - " + x.status : ""}`),
   ];
   if (status) L.push("", status);
   return L.join("\n");
 }
+
+/* Suggestions for Location / Photographer: the Jetty media library's published list + anything uploaded here. */
+const OPTIONS_URL = process.env.MEDIA_OPTIONS_URL || "https://jetty-media-library.netlify.app/ambassador-options.json";
+let optCache = { at: 0, data: { locations: [], photographers: [] } };
+async function uploadOptions() {
+  if (Date.now() - optCache.at < 10 * 60000) return optCache.data;
+  const tally = { locations: new Map(), photographers: new Map() };
+  const add = (kind, name, uses = 1, last = "") => {
+    const n = String(name || "").replace(/\s+/g, " ").trim(); if (!n) return;
+    const k = n.toLowerCase(), cur = tally[kind].get(k);
+    if (cur) { cur.uses += uses; if (last > cur.last) cur.last = last; } else tally[kind].set(k, { name: n, uses, last });
+  };
+  try {
+    const r = await fetch(OPTIONS_URL, { headers: { "User-Agent": UA } });
+    if (r.ok) { const j = await r.json(); for (const k of ["locations", "photographers"]) for (const x of (j[k] || [])) add(k, x.name, Number(x.uses) || 1, x.last || ""); }
+  } catch (e) { console.error(JSON.stringify({ event: "media_options_unreachable", error: e.message })); }
+  for (const u of readJson(UPLOADS_FILE(), [])) { if (u.test) continue; add("locations", u.form.location, 1, u.form.shootDate || ""); add("photographers", u.form.photographer, 1, u.form.shootDate || ""); }
+  const sorted = m => [...m.values()].sort((a, b) => b.uses - a.uses || String(b.last).localeCompare(String(a.last))).map(x => x.name);
+  optCache = { at: Date.now(), data: { locations: sorted(tally.locations), photographers: sorted(tally.photographers) } };
+  return optCache.data;
+}
 async function startUpload(me, form, files, origin) {
   const f = {
-    date: isDate(form.date) ? form.date : "", desc: clip(form.desc, 12), location: clip(form.location, 500),
+    uploadDate: todayET(), shootDate: isDate(form.shootDate) ? form.shootDate : "", desc: clip(form.desc, 12), location: clip(form.location, 500),
     photo: !!form.photo, video: !!form.video, product: form.product === "Yes" ? "Yes" : form.product === "No" ? "No" : "",
     photographer: clip(form.photographer, 120), notes: clip(form.notes, 5000),
   };
-  if (!f.date) throw Object.assign(new Error("Pick the date from the calendar."), { status: 400 });
+  if (!f.shootDate) throw Object.assign(new Error("Pick the Date of Shoot from the calendar."), { status: 400 });
+  if (f.shootDate > f.uploadDate) throw Object.assign(new Error("The Date of Shoot can't be after today."), { status: 400 });
   if (!f.desc) throw Object.assign(new Error("Add a short description (12 characters max)."), { status: 400 });
   if (!f.location) throw Object.assign(new Error("Add the location."), { status: 400 });
   if (!f.photo && !f.video) throw Object.assign(new Error("Check Photo, Video, or both."), { status: 400 });
@@ -553,11 +586,12 @@ async function startUpload(me, form, files, origin) {
   if (!list.length) throw Object.assign(new Error("Add at least one photo or video."), { status: 400 });
   const amb = await ambassadorFolder(me);
   // B: "<date> - <description>" subfolder; a second upload with the same name gets " (2)", " (3)"...
-  let base = folderName(`${f.date} - ${f.desc}`), name = base, n = 2;
+  let base = folderName(`${f.shootDate} - ${f.desc}`), name = base, n = 2;
   while (await findFolder(name, amb)) name = `${base} (${n++})`;
   const sub = await makeFolder(name, amb);
   // C: the form answers as a text file in the folder
   const info = await uploadText("Upload info.txt", sub.id, uploadInfo(me, f, list));
+  optCache.at = 0;
   const sessions = [];
   for (const x of list) sessions.push({ i: x.i, name: x.name, url: await resumableSession(x, sub.id, origin) });
   const rec = { id: "UP-" + Date.now().toString(36).toUpperCase(), at: new Date().toISOString(), test: !!me.t, who: { id: me.id, n: me.n, e: me.e },
@@ -752,6 +786,7 @@ http.createServer(async (req, res) => {
         const origin = req.headers.origin || `https://${req.headers.host}`;
         if (action === "start") return send(res, 200, { ok: true, ...(await startUpload(me, body.form || {}, body.files || [], origin)) });
         if (action === "finish") return send(res, 200, { ok: true, ...(await finishUpload(me, String(body.uploadId || ""), body.results)) });
+        if (action === "options") return send(res, 200, { ok: true, ...(await uploadOptions()), today: todayET() });
         if (action === "mine") return send(res, 200, { ok: true, enabled: !!SA, uploads: readJson(UPLOADS_FILE(), []).filter(r => r.who.id === me.id).reverse() });
         if (action === "all") { if (!me.admin) return send(res, 403, { ok: false }); return send(res, 200, { ok: true, enabled: !!SA, uploads: readJson(UPLOADS_FILE(), []).reverse() }); }
         return send(res, 404, { ok: false });
