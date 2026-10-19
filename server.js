@@ -460,9 +460,27 @@ const DRIVE_ROOT = process.env.DRIVE_ROOT_FOLDER_ID || "1ff5nCjSfAlN_j7ZH76Bodie
 let SA = null; try { if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON) SA = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON); } catch (e) { console.error("GOOGLE_SERVICE_ACCOUNT_JSON is not valid JSON"); }
 let gTok = { token: "", exp: 0 };
 const GAPI = process.env.GOOGLE_API_BASE || "https://www.googleapis.com/", GTOKEN = process.env.GOOGLE_TOKEN_URL || "https://oauth2.googleapis.com/token";
+/* Upload as a real Google account (Tyler's), approved once through "Connect Google Drive" on the admin profile.
+   Railway variables: GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET (from an OAuth client of type "Web application"
+   with redirect URI https://<site>/api/google/callback). The approval is saved on the Volume (/data/google-oauth.json).
+   Falls back to the service account only if no account is connected. */
+const GO = { id: process.env.GOOGLE_OAUTH_CLIENT_ID || "", secret: process.env.GOOGLE_OAUTH_CLIENT_SECRET || "" };
+const OAUTH_FILE = () => path.join(DATA_DIR, "google-oauth.json");
+const oauthSaved = () => { try { return JSON.parse(fs.readFileSync(OAUTH_FILE(), "utf8")); } catch (e) { return process.env.GOOGLE_OAUTH_REFRESH_TOKEN ? { refresh_token: process.env.GOOGLE_OAUTH_REFRESH_TOKEN, email: "" } : null; } };
+const googleMode = () => (GO.id && GO.secret && oauthSaved()?.refresh_token) ? "account" : SA ? "service" : "";
+const googleReady = () => !!googleMode();
 async function googleToken() {
-  if (!SA) throw Object.assign(new Error("Uploads aren't switched on yet."), { status: 503 });
-  if (gTok.token && Date.now() < gTok.exp - 60000) return gTok.token;
+  const mode = googleMode();
+  if (!mode) throw Object.assign(new Error("Uploads aren't switched on yet."), { status: 503 });
+  if (gTok.token && gTok.mode === mode && Date.now() < gTok.exp - 60000) return gTok.token;
+  if (mode === "account") {
+    const r = await fetch(GTOKEN, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: oauthSaved().refresh_token, client_id: GO.id, client_secret: GO.secret }).toString() });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.access_token) throw new Error("Google sign-in failed: " + JSON.stringify(j).slice(0, 200));
+    gTok = { token: j.access_token, exp: Date.now() + (j.expires_in || 3600) * 1000, mode };
+    return gTok.token;
+  }
   const now = Math.floor(Date.now() / 1000), b64 = o => Buffer.from(JSON.stringify(o)).toString("base64url");
   const unsigned = b64({ alg: "RS256", typ: "JWT" }) + "." + b64({ iss: SA.client_email, scope: "https://www.googleapis.com/auth/drive", aud: "https://oauth2.googleapis.com/token", iat: now, exp: now + 3600 });
   const jwt = unsigned + "." + crypto.createSign("RSA-SHA256").update(unsigned).sign(SA.private_key, "base64url");
@@ -470,8 +488,31 @@ async function googleToken() {
     body: "grant_type=" + encodeURIComponent("urn:ietf:params:oauth:grant-type:jwt-bearer") + "&assertion=" + jwt });
   const j = await r.json().catch(() => ({}));
   if (!r.ok || !j.access_token) throw new Error("Google sign-in failed: " + JSON.stringify(j).slice(0, 200));
-  gTok = { token: j.access_token, exp: Date.now() + (j.expires_in || 3600) * 1000 };
+  gTok = { token: j.access_token, exp: Date.now() + (j.expires_in || 3600) * 1000, mode };
   return gTok.token;
+}
+const oauthStates = new Map(); // state -> expiry
+function siteUrl(req) { return process.env.PUBLIC_URL || `https://${req.headers.host}`; }
+function connectUrl(req) {
+  const state = crypto.randomBytes(16).toString("hex"); oauthStates.set(state, Date.now() + 10 * 60000);
+  return "https://accounts.google.com/o/oauth2/v2/auth?" + new URLSearchParams({ client_id: GO.id, redirect_uri: siteUrl(req) + "/api/google/callback",
+    response_type: "code", scope: "https://www.googleapis.com/auth/drive openid email", access_type: "offline", prompt: "consent",
+    include_granted_scopes: "true", login_hint: process.env.GOOGLE_UPLOAD_ACCOUNT || "tyler@jettylife.com", state }).toString();
+}
+async function finishConnect(req, url) {
+  const state = url.searchParams.get("state"), code = url.searchParams.get("code");
+  if (!state || !(oauthStates.get(state) > Date.now())) throw new Error("This approval link expired. Go back to the admin profile and click Connect Google Drive again.");
+  oauthStates.delete(state);
+  if (url.searchParams.get("error")) throw new Error("Google approval was cancelled (" + url.searchParams.get("error") + ").");
+  const r = await fetch(GTOKEN, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ grant_type: "authorization_code", code, redirect_uri: siteUrl(req) + "/api/google/callback", client_id: GO.id, client_secret: GO.secret }).toString() });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j.refresh_token) throw new Error("Google didn't return a long-term approval: " + JSON.stringify(j).slice(0, 200));
+  let email = ""; try { email = JSON.parse(Buffer.from(String(j.id_token).split(".")[1], "base64url").toString()).email || ""; } catch (e) {}
+  writeJson(OAUTH_FILE(), { refresh_token: j.refresh_token, email, at: new Date().toISOString() });
+  gTok = { token: "", exp: 0 };
+  console.log(JSON.stringify({ event: "google_connected", email }));
+  return email;
 }
 async function gdrive(pathAndQuery, opts = {}) {
   const r = await fetch(GAPI + pathAndQuery, { ...opts, headers: { Authorization: "Bearer " + await googleToken(), ...(opts.headers || {}) } });
@@ -524,7 +565,8 @@ const UPLOADS_FILE = () => path.join(DATA_DIR, "uploads.json");
 // Plain-English cause for the common Google setup problems (shown to staff and test accounts only).
 function explainDrive(msg) {
   const m = String(msg || "");
-  if (/not valid JSON|switched on/i.test(m) || !SA) return "GOOGLE_SERVICE_ACCOUNT_JSON is missing or isn't the full contents of the JSON key file.";
+  if (/switched on/i.test(m) || !googleReady()) return GO.id ? "No Google account is connected yet. On the Jetty Admin profile, open Upload Content and click Connect Google Drive." : "Google isn't set up yet: add GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET in Railway.";
+  if (googleMode() === "account" && /sign-in failed|invalid_grant/i.test(m)) return "The Google approval expired or was removed. On the Jetty Admin profile, click Connect Google Drive again.";
   if (/sign-in failed|invalid_grant|invalid_client|PEM|DECODER|asn1|private key/i.test(m)) return "Google rejected the service account key. Re-paste the whole JSON file into GOOGLE_SERVICE_ACCOUNT_JSON (or make a new key).";
   if (/accessNotConfigured|has not been used|is disabled|SERVICE_DISABLED/i.test(m)) return "The Google Drive API isn't enabled in the Cloud project. APIs & Services → Library → Google Drive API → Enable.";
   if (/storageQuotaExceeded|storage quota|do not have storage/i.test(m)) return "The folder is in someone's My Drive. Service accounts can only upload into a Shared Drive. Use a folder inside a Shared Drive.";
@@ -535,8 +577,10 @@ function explainDrive(msg) {
 async function driveCheck() {
   try {
     const f = await gdrive(`drive/v3/files/${DRIVE_ROOT}?supportsAllDrives=true&fields=id,name,driveId,capabilities(canAddChildren)`);
-    return { ok: true, folder: f.name, sharedDrive: !!f.driveId, canAdd: !!(f.capabilities && f.capabilities.canAddChildren),
-      problem: !f.driveId ? explainDrive("storageQuotaExceeded") : !(f.capabilities && f.capabilities.canAddChildren) ? explainDrive("403") : null };
+    const mode = googleMode(), canAdd = !!(f.capabilities && f.capabilities.canAddChildren);
+    return { ok: true, mode, account: mode === "account" ? oauthSaved().email : SA && SA.client_email, folder: f.name, sharedDrive: !!f.driveId, canAdd,
+      problem: !canAdd ? (mode === "account" ? `${oauthSaved().email || "The connected account"} needs Editor access to the folder.` : explainDrive("403"))
+        : (!f.driveId && mode === "service") ? explainDrive("storageQuotaExceeded") : null };
   } catch (e) { return { ok: false, problem: explainDrive(e.message), detail: e.message.slice(0, 300) }; }
 }
 const usDate = iso => { const m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})$/); return m ? `${m[2]}/${m[3]}/${m[1]}` : ""; };
@@ -805,8 +849,13 @@ http.createServer(async (req, res) => {
         if (action === "start") return send(res, 200, { ok: true, ...(await startUpload(me, body.form || {}, body.files || [], origin)) });
         if (action === "finish") return send(res, 200, { ok: true, ...(await finishUpload(me, String(body.uploadId || ""), body.results)) });
         if (action === "options") return send(res, 200, { ok: true, ...(await uploadOptions()), today: todayET() });
-        if (action === "mine") return send(res, 200, { ok: true, enabled: !!SA, uploads: readJson(UPLOADS_FILE(), []).filter(r => r.who.id === me.id).reverse() });
-        if (action === "all") { if (!me.admin) return send(res, 403, { ok: false }); return send(res, 200, { ok: true, enabled: !!SA, uploads: readJson(UPLOADS_FILE(), []).reverse() }); }
+        if (action === "mine") return send(res, 200, { ok: true, enabled: googleReady(), uploads: readJson(UPLOADS_FILE(), []).filter(r => r.who.id === me.id).reverse() });
+        if (action === "all") { if (!me.admin) return send(res, 403, { ok: false }); return send(res, 200, { ok: true, enabled: googleReady(),
+          google: { mode: googleMode(), account: googleMode() === "account" ? oauthSaved().email : SA ? SA.client_email : "", canConnect: !!(GO.id && GO.secret) },
+          uploads: readJson(UPLOADS_FILE(), []).reverse() }); }
+        if (action === "connect") { if (!me.admin) return send(res, 403, { ok: false });
+          if (!GO.id || !GO.secret) return send(res, 503, { ok: false, error: "Add GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET in Railway first." });
+          return send(res, 200, { ok: true, url: connectUrl(req) }); }
         return send(res, 404, { ok: false });
       } catch (e) {
         if (e.status) return send(res, e.status, { ok: false, error: e.message });
@@ -853,9 +902,14 @@ http.createServer(async (req, res) => {
         return send(res, 200, { ok: true, count: rows.length, sample: rows.slice(0, 2), tracking: findTracking(rows) });
       } catch (e) { return send(res, 502, { ok: false, error: e.message }); }
     }
-    if (url.pathname === "/api/health/drive") return send(res, 200, SA ? await driveCheck() : { ok: false, problem: explainDrive("") });
+    if (url.pathname === "/api/google/callback") {
+      const page = (title, msg) => `<!doctype html><meta name=viewport content="width=device-width,initial-scale=1"><title>Jetty Ambassador</title><body style="font-family:system-ui;max-width:480px;margin:12vh auto;padding:0 16px;color:#0d0f10"><h2 style="color:#43575E">${title}</h2><p>${msg}</p><p><a href="/" style="color:#43575E">Back to Jetty Ambassador</a></p></body>`;
+      try { const email = await finishConnect(req, url); return send(res, 200, page("Google Drive connected", `Uploads will now go to Drive as <b>${email || "the approved account"}</b>. You can close this page.`), "text/html; charset=utf-8"); }
+      catch (e) { return send(res, 400, page("Couldn't connect Google Drive", String(e.message).replace(/</g, "&lt;")), "text/html; charset=utf-8"); }
+    }
+    if (url.pathname === "/api/health/drive") return send(res, 200, googleReady() ? await driveCheck() : { ok: false, problem: explainDrive("") });
     if (url.pathname === "/api/health") {
-      const out = { ok: true, build: BUILD, uploadsEnabled: !!SA, uploadsAccount: SA ? SA.client_email : null, savedRequests: readRequests().length, tokenSet: !!AM_TOKEN, dryRun: DRY_RUN, dataDir: DATA_DIR, persistentStorage: DATA_DIR === "/data", subdomain: AM_BASE.split("//")[1].split(".")[0] };
+      const out = { ok: true, build: BUILD, uploadsEnabled: googleReady(), uploadsMode: googleMode(), uploadsAccount: googleMode() === "account" ? oauthSaved().email : SA ? SA.client_email : null, savedRequests: readRequests().length, tokenSet: !!AM_TOKEN, dryRun: DRY_RUN, dataDir: DATA_DIR, persistentStorage: DATA_DIR === "/data", subdomain: AM_BASE.split("//")[1].split(".")[0] };
       if (url.searchParams.get("check") === "1" && process.env.ADMIN_KEY && url.searchParams.get("key") === process.env.ADMIN_KEY) {
         try { out.warehouseId = await warehouseId(); out.divisionId = await divisionId(); out.amReachable = true; } catch (e) { out.amReachable = false; out.amError = e.message; }
       }

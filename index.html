@@ -602,6 +602,9 @@ button.alink{font:inherit;font-size:13px;background:var(--surface);cursor:pointe
 .achint{font-size:12.5px;color:var(--muted);min-height:0}
 .achint:empty{display:none}
 .achint button{all:unset;cursor:pointer;color:var(--slate);font-weight:700;text-decoration:underline}
+.gconn{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;border:1px solid var(--warn);background:var(--warn-soft);border-radius:var(--r);padding:10px 14px;font-size:14px;margin:4px 0 8px}
+.gconn.on{border-color:var(--ok);background:#e4f1e9}
+.gconn small{color:var(--muted)}
 </style></head><body>
 <header class="top">
   <div class="band">
@@ -1350,7 +1353,7 @@ async function upApi(action, extra){
   const j = await r.json().catch(() => ({})); if (!r.ok || !j.ok) throw new Error(j.error || "Something went wrong. Try again."); return j;
 }
 async function loadUploads(){
-  try { const j = await upApi(isStaff() ? "all" : "mine"); UP.enabled = j.enabled; if (isStaff()) UP.staffList = j.uploads; else UP.list = j.uploads; }
+  try { const j = await upApi(isStaff() ? "all" : "mine"); UP.enabled = j.enabled; UP.google = j.google || null; if (isStaff()) UP.staffList = j.uploads; else UP.list = j.uploads; }
   catch (e) { if (isStaff()) UP.staffList = { error: true }; else UP.list = { error: true }; }
   renderProfile();
 }
@@ -1369,6 +1372,9 @@ function uploadPanel(){
   return `<div class="rhead"><h3 class="psec">Upload Content</h3>
       <button type="button" class="primary small" id="up-open"${UP.enabled ? "" : " disabled"}>Upload photos or video</button></div>
     <p class="hint">Send us the photos and video you've shot for Jetty. A short form asks about the shoot, then your files go straight to our team's drive.</p>
+    ${staff && UP.google ? `<div class="gconn${UP.google.mode === "account" ? " on" : ""}">
+        <div><b>Google Drive:</b> ${UP.google.mode === "account" ? `uploading as ${esc(UP.google.account || "connected account")}` : UP.google.mode === "service" ? "service account (needs a Shared Drive)" : "not connected"}</div>
+        ${UP.google.canConnect ? `<button type="button" class="alink" id="g-connect">${UP.google.mode === "account" ? "Reconnect" : "Connect Google Drive"}</button>` : `<small>Add the Google OAuth client ID and secret in Railway to connect.</small>`}</div>` : ""}
     ${UP.enabled ? "" : `<div class="note">Uploads aren't switched on yet. Check back soon.</div>`}
     ${UP.result ? `<div class="okbox"><b>Upload complete</b>${UP.result.uploaded} file${UP.result.uploaded===1?"":"s"} sent to “${esc(UP.result.folder)}”.${UP.result.missing ? ` ${UP.result.missing} didn't finish. Try those again in a new upload.` : " Thank you!"}</div>` : ""}
     <h3 class="psec">${staff ? "All uploads" : "Your uploads"}</h3>
@@ -1599,6 +1605,7 @@ $("profBody").addEventListener("change", async e => {
   if (st) { try { const j = await reqApi("status", { id: st.dataset.req, status: st.value }); const r = REQ.all.find(x => x.id === j.request.id); if (r) r.status = j.request.status; toast("Status updated"); } catch (x) { toast(x.message); } renderProfile(); }
 });
 $("profBody").addEventListener("click", e => {
+  if (e.target.id === "g-connect") { e.target.disabled = true; upApi("connect").then(j => { location.href = j.url; }).catch(x => { toast(x.message); e.target.disabled = false; }); return; }
   if (e.target.id === "up-open") { UP.open = true; UP.result = null; UP.err = ""; renderUpModal(); setTimeout(() => $("up-date")?.focus(), 30);
     if (!UPOPT.loaded) loadUpOptions().then(() => { if (UP.open && !UP.busy) { readUp(); renderUpModal(); } }); return; }
   if (e.target.id === "rq-open") { REQ.form = true; REQ.done = false; REQ.err = ""; renderProfile(); setTimeout(() => $("rq-location")?.focus(), 30); return; }
