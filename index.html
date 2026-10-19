@@ -608,6 +608,8 @@ button.alink{font:inherit;font-size:13px;background:var(--surface);cursor:pointe
 .acbox li{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .acbox kbd{font:inherit;font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;color:var(--slate);border:1px solid #cfdcdf;border-radius:4px;padding:1px 6px;background:var(--surface)}
 @media (hover:none){.acbox kbd{display:none}}
+.acbox li.acgrp{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);padding:6px 10px 2px;cursor:default;background:none}
+.acbox li.sug{color:var(--ink)}
 </style></head><body>
 <header class="top">
   <div class="band">
@@ -1429,14 +1431,63 @@ function acField(kind, label, val, ph){
     <div class="achint" id="hint-${kind}">${cm && cm.near ? `Did you mean <button type="button" data-acpick="${esc(cm.near)}" data-ackind="${kind}">${esc(cm.near)}</button>? Keep yours if it's new.` : ""}</div></div>`;
 }
 let AC = { kind: null, items: [], idx: -1 };
-function showAc(kind){
+/* Predictive place suggestions: a built-in list (countries, US states, common surf/travel spots) shows instantly,
+   then real places from the map lookup (/api/places) fill in. "On file" names always come first. */
+const ISO2 = "AD AE AF AG AI AL AM AO AR AS AT AU AW AZ BA BB BD BE BF BG BH BI BJ BM BN BO BR BS BT BW BY BZ CA CD CF CG CH CI CK CL CM CN CO CR CU CV CW CY CZ DE DJ DK DM DO DZ EC EE EG ER ES ET FI FJ FM FO FR GA GB GD GE GF GH GI GL GM GN GP GQ GR GT GU GW GY HK HN HR HT HU ID IE IL IM IN IQ IR IS IT JM JO JP KE KG KH KI KM KN KR KW KY KZ LA LB LC LI LK LR LS LT LU LV LY MA MC MD ME MG MH MK ML MM MN MO MQ MR MT MU MV MW MX MY MZ NA NC NE NG NI NL NO NP NR NZ OM PA PE PF PG PH PK PL PR PT PW PY QA RE RO RS RU RW SA SB SC SD SE SG SI SK SL SM SN SO SR SS ST SV SX SY SZ TC TD TG TH TJ TL TM TN TO TR TT TV TW TZ UA UG US UY UZ VC VE VG VI VN VU WS YE ZA ZM ZW".split(" ");
+const BUILTIN_PLACES = (() => {
+  let countries = [];
+  try { const dn = new Intl.DisplayNames(["en"], { type: "region" }); countries = ISO2.map(c => dn.of(c)).filter(Boolean); } catch (e) {}
+  const states = ["Alabama","Alaska","Arizona","Arkansas","California","Colorado","Connecticut","Delaware","Florida","Georgia","Hawaii","Idaho","Illinois","Indiana","Iowa","Kansas","Kentucky","Louisiana","Maine","Maryland","Massachusetts","Michigan","Minnesota","Mississippi","Missouri","Montana","Nebraska","Nevada","New Hampshire","New Jersey","New Mexico","New York","North Carolina","North Dakota","Ohio","Oklahoma","Oregon","Pennsylvania","Rhode Island","South Carolina","South Dakota","Tennessee","Texas","Utah","Vermont","Virginia","Washington","West Virginia","Wisconsin","Wyoming"];
+  const spots = ["Long Beach Island, NJ", "Holgate, NJ", "Barnegat Light, NJ", "Ship Bottom, NJ", "Manahawkin, NJ", "Manasquan, NJ", "Belmar, NJ", "Asbury Park, NJ", "Seaside Heights, NJ", "Point Pleasant, NJ", "Ocean City, NJ", "Atlantic City, NJ", "Cape May, NJ", "Sandy Hook, NJ",
+    "Outer Banks, NC", "Cape Hatteras, NC", "Rodanthe, NC", "Nags Head, NC", "Kill Devil Hills, NC", "Wrightsville Beach, NC", "Montauk, NY", "Rockaway Beach, NY", "Long Island, NY", "Ocean City, MD", "Assateague Island, MD", "Virginia Beach, VA",
+    "Cocoa Beach, FL", "New Smyrna Beach, FL", "Jacksonville Beach, FL", "Narragansett, RI", "Cape Cod, MA", "Nantucket, MA", "Martha's Vineyard, MA", "Folly Beach, SC", "Myrtle Beach, SC", "Lake Tahoe, CA",
+    "San Diego, CA", "Malibu, CA", "Santa Cruz, CA", "Huntington Beach, CA", "Oahu, HI", "North Shore, Oahu, HI", "Maui, HI", "Kauai, HI", "Big Island, HI",
+    "Santa Teresa, Costa Rica", "Tamarindo, Costa Rica", "Nosara, Costa Rica", "Pavones, Costa Rica", "Popoyo, Nicaragua", "San Juan del Sur, Nicaragua", "Rincón, Puerto Rico", "Puerto Escondido, Mexico", "Sayulita, Mexico", "Cabo San Lucas, Mexico", "Todos Santos, Mexico",
+    "Bali, Indonesia", "Uluwatu, Indonesia", "Mentawai Islands, Indonesia", "Ericeira, Portugal", "Nazaré, Portugal", "Hossegor, France", "Biarritz, France", "Jeffreys Bay, South Africa", "Gold Coast, Australia", "Byron Bay, Australia", "Raglan, New Zealand",
+    "Tofino, Canada", "Nova Scotia, Canada", "Banff, Canada", "Iceland", "Siargao, Philippines", "Maldives", "Tahiti, French Polynesia", "Fiji", "Barbados", "Bahamas", "Turks and Caicos", "Panama", "El Salvador"];
+  return [...new Set([...spots, ...states, ...countries])];
+})();
+let placeTimer = null, REMOTE = { q: "", list: [] };
+const PLACE_ALIASES = { obx: "Outer Banks, NC", lbi: "Long Beach Island, NJ", cr: "Costa Rica", pr: "Puerto Rico", nyc: "New York City, NY", socal: "Southern California", nica: "Nicaragua", hi: "Hawaii" };
+function placeScore(typed, name){         // stricter than the on-file match: suggestions should start with what's typed
+  const t = normTxt(typed), c = normTxt(name); if (!t) return 0;
+  if (c.startsWith(t)) return 0.95;
+  if (c.split(" ").some(w => w.startsWith(t))) return 0.9;
+  if (t.length >= 5 && c.includes(t)) return 0.8;
+  if (t.length >= 5) { const s = Math.max(simil(t, c.slice(0, t.length)), ...c.split(" ").map(w => simil(t, w.slice(0, t.length)))); if (s >= 0.75) return 0.7 * s; }
+  return 0;
+}
+function locationSuggest(typed, onFile){
+  const fileNorm = new Set(onFile.map(normTxt));
+  const remote = REMOTE.q === normTxt(typed) ? REMOTE.list : [];
+  const alias = PLACE_ALIASES[normTxt(typed)];
+  const pool = [...(alias ? [alias] : []), ...remote, ...BUILTIN_PLACES].filter((v, i, a) => a.findIndex(x => normTxt(x) === normTxt(v)) === i && !fileNorm.has(normTxt(v)));
+  const ranked = pool.map((name, i) => ({ name, s: (alias && name === alias ? 1 : placeScore(typed, name)) + (i < remote.length ? 0.04 : 0), i })).filter(x => x.s > 0.5 && normTxt(x.name) !== normTxt(typed))
+    .sort((a, b) => b.s - a.s || (Math.abs(b.s - a.s) < 1e-9 && a.name.length - b.name.length) || a.i - b.i);
+  return ranked.slice(0, 5).map(x => ({ name: x.name, sug: true }));
+}
+function showAc(kind, keepIdx){
   const inp = $("up-" + kind), box = $("ac-" + kind); if (!inp || !box) return;
-  const list = kind === "location" ? UPOPT.locations : UPOPT.photographers;
-  const items = inp.value.trim() ? suggestions(inp.value, list) : list.slice(0, 6).map(name => ({ name }));
+  const list = kind === "location" ? UPOPT.locations : UPOPT.photographers, typed = inp.value.trim();
+  let items = typed ? suggestions(inp.value, list) : list.slice(0, 6).map(name => ({ name }));
+  if (kind === "location" && typed.length >= 2) {
+    items = items.slice(0, 5).concat(locationSuggest(typed, list));
+    if (REMOTE.q !== normTxt(typed)) {   // look up real places after a short pause in typing
+      clearTimeout(placeTimer);
+      placeTimer = setTimeout(async () => {
+        try { const r = await fetch("/api/places?q=" + encodeURIComponent(typed)); const j = await r.json();
+          REMOTE = { q: normTxt(typed), list: j.places || [] };
+          const cur = $("up-location"); if (cur && cur.value.trim() === typed && document.activeElement === cur) showAc("location", true);
+        } catch (e) {}
+      }, 250);
+    }
+  }
   // While typing, the best match is pre-highlighted so Enter fills it in.
-  const idx = inp.value.trim() && items.length ? 0 : -1;
+  const idx = keepIdx && AC.kind === kind && AC.idx >= 0 && AC.idx < items.length ? AC.idx : (typed && items.length ? 0 : -1);
   AC = { kind, items, idx };
-  box.innerHTML = items.map((x, i) => `<li role="option" class="${i === idx ? "on" : ""}" data-acpick="${esc(x.name)}" data-ackind="${kind}" id="aco-${kind}-${i}">${esc(x.name)}${i === idx ? `<kbd>Enter</kbd>` : ""}</li>`).join("");
+  const firstSug = items.findIndex(x => x.sug);
+  box.innerHTML = items.map((x, i) => (i === firstSug ? `<li class="acgrp" role="presentation">Suggested places</li>` : i === 0 && firstSug !== 0 && typed && kind === "location" ? `<li class="acgrp" role="presentation">Used before</li>` : "")
+    + `<li role="option" class="${i === idx ? "on" : ""}${x.sug ? " sug" : ""}" data-acpick="${esc(x.name)}" data-ackind="${kind}" id="aco-${kind}-${i}">${esc(x.name)}${i === idx ? `<kbd>Enter</kbd>` : ""}</li>`).join("");
   box.hidden = !items.length; inp.setAttribute("aria-expanded", String(!!items.length));
 }
 function hideAc(){ document.querySelectorAll("#upModal .acbox").forEach(b => b.hidden = true); AC = { kind: null, items: [], idx: -1 }; }
@@ -1663,7 +1714,7 @@ $("upModal").addEventListener("keydown", e => {
   }
   if (AC.kind && e.target.id === "up-" + AC.kind && AC.items.length && ["ArrowDown","ArrowUp"].includes(e.key)) {
     e.preventDefault(); AC.idx = (AC.idx + (e.key === "ArrowDown" ? 1 : -1) + AC.items.length) % AC.items.length;
-    document.querySelectorAll(`#ac-${AC.kind} li`).forEach((li, i) => { li.classList.toggle("on", i === AC.idx); const k = li.querySelector("kbd"); if (k) k.remove(); if (i === AC.idx) li.insertAdjacentHTML("beforeend", "<kbd>Enter</kbd>"); }); e.target.setAttribute("aria-activedescendant", `aco-${AC.kind}-${AC.idx}`); return;
+    document.querySelectorAll(`#ac-${AC.kind} li[role="option"]`).forEach((li, i) => { li.classList.toggle("on", i === AC.idx); const k = li.querySelector("kbd"); if (k) k.remove(); if (i === AC.idx) li.insertAdjacentHTML("beforeend", "<kbd>Enter</kbd>"); }); e.target.setAttribute("aria-activedescendant", `aco-${AC.kind}-${AC.idx}`); return;
   }
   if (e.target.id === "up-date" && e.key !== "Tab" && e.key !== "Escape") e.preventDefault(); if (e.key === "Escape" && !UP.busy) { readUp(); UP.open = false; renderUpModal(); } });
 $("upModal").addEventListener("focusin", e => { const k = (e.target.id || "").match(/^up-(location|photographer)$/); if (k) showAc(k[1]); });

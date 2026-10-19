@@ -676,6 +676,36 @@ async function finishUpload(me, id, results) {
   return { uploaded: rec.uploaded, missing, folder: rec.folder.name };
 }
 
+/* ---------- place suggestions for the Location field (OpenStreetMap data via Photon; no key needed) ---------- */
+const placeCache = new Map(); // query -> {at, list}
+const US = { "Alabama":"AL","Alaska":"AK","Arizona":"AZ","Arkansas":"AR","California":"CA","Colorado":"CO","Connecticut":"CT","Delaware":"DE","Florida":"FL","Georgia":"GA","Hawaii":"HI","Idaho":"ID","Illinois":"IL","Indiana":"IN","Iowa":"IA","Kansas":"KS","Kentucky":"KY","Louisiana":"LA","Maine":"ME","Maryland":"MD","Massachusetts":"MA","Michigan":"MI","Minnesota":"MN","Mississippi":"MS","Missouri":"MO","Montana":"MT","Nebraska":"NE","Nevada":"NV","New Hampshire":"NH","New Jersey":"NJ","New Mexico":"NM","New York":"NY","North Carolina":"NC","North Dakota":"ND","Ohio":"OH","Oklahoma":"OK","Oregon":"OR","Pennsylvania":"PA","Rhode Island":"RI","South Carolina":"SC","South Dakota":"SD","Tennessee":"TN","Texas":"TX","Utah":"UT","Vermont":"VT","Virginia":"VA","Washington":"WA","West Virginia":"WV","Wisconsin":"WI","Wyoming":"WY","Puerto Rico":"PR" };
+async function placeSuggestions(q) {
+  q = String(q || "").replace(/\s+/g, " ").trim().slice(0, 60);
+  if (q.length < 2) return [];
+  const key = q.toLowerCase(), hit = placeCache.get(key);
+  if (hit && Date.now() - hit.at < 864e5) return hit.list;
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 2500);
+  try {
+    const r = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=12&lang=en`, { headers: { "User-Agent": UA }, signal: ctl.signal });
+    const j = await r.json();
+    const seen = new Set(), list = [];
+    for (const f of (j.features || [])) {
+      const p = f.properties || {}; if (!p.name) continue;
+      if (!/^(country|state|city|town|village|district|county|locality|island|beach|bay|peninsula|cape|region|archipelago|national_park|hamlet|suburb|neighbourhood)$/.test(String(p.type || p.osm_value || ""))
+          && !["place", "natural", "boundary", "leisure", "tourism"].includes(p.osm_key)) continue;
+      let label;
+      if (p.type === "country") label = p.name;
+      else if (p.countrycode === "US") label = [p.name, US[p.state] || p.state].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).join(", ");
+      else label = [p.name, p.state && p.state !== p.name && p.type !== "state" ? p.state : "", p.country !== p.name ? p.country : ""].filter(Boolean).join(", ");
+      const k = label.toLowerCase(); if (seen.has(k)) continue; seen.add(k); list.push(label);
+      if (list.length >= 5) break;
+    }
+    placeCache.set(key, { at: Date.now(), list });
+    if (placeCache.size > 2000) placeCache.delete(placeCache.keys().next().value);
+    return list;
+  } catch (e) { return []; } finally { clearTimeout(timer); }
+}
+
 /* ---------- order ---------- */
 const seen = new Map(); // orderId -> result (stops double submits)
 async function handleOrder(input) {
@@ -902,6 +932,7 @@ http.createServer(async (req, res) => {
         return send(res, 200, { ok: true, count: rows.length, sample: rows.slice(0, 2), tracking: findTracking(rows) });
       } catch (e) { return send(res, 502, { ok: false, error: e.message }); }
     }
+    if (url.pathname === "/api/places") return send(res, 200, { ok: true, places: await placeSuggestions(url.searchParams.get("q")) });
     if (url.pathname === "/api/google/callback") {
       const page = (title, msg) => `<!doctype html><meta name=viewport content="width=device-width,initial-scale=1"><title>Jetty Ambassador</title><body style="font-family:system-ui;max-width:480px;margin:12vh auto;padding:0 16px;color:#0d0f10"><h2 style="color:#43575E">${title}</h2><p>${msg}</p><p><a href="/" style="color:#43575E">Back to Jetty Ambassador</a></p></body>`;
       try { const email = await finishConnect(req, url); return send(res, 200, page("Google Drive connected", `Uploads will now go to Drive as <b>${email || "the approved account"}</b>. You can close this page.`), "text/html; charset=utf-8"); }
