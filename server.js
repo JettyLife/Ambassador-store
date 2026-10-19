@@ -521,6 +521,24 @@ async function resumableSession(file, parent, origin) {
   return r.headers.get("location");
 }
 const UPLOADS_FILE = () => path.join(DATA_DIR, "uploads.json");
+// Plain-English cause for the common Google setup problems (shown to staff and test accounts only).
+function explainDrive(msg) {
+  const m = String(msg || "");
+  if (/not valid JSON|switched on/i.test(m) || !SA) return "GOOGLE_SERVICE_ACCOUNT_JSON is missing or isn't the full contents of the JSON key file.";
+  if (/sign-in failed|invalid_grant|invalid_client|PEM|DECODER|asn1|private key/i.test(m)) return "Google rejected the service account key. Re-paste the whole JSON file into GOOGLE_SERVICE_ACCOUNT_JSON (or make a new key).";
+  if (/accessNotConfigured|has not been used|is disabled|SERVICE_DISABLED/i.test(m)) return "The Google Drive API isn't enabled in the Cloud project. APIs & Services → Library → Google Drive API → Enable.";
+  if (/storageQuotaExceeded|storage quota|do not have storage/i.test(m)) return "The folder is in someone's My Drive. Service accounts can only upload into a Shared Drive. Use a folder inside a Shared Drive.";
+  if (/404|notFound|File not found/i.test(m)) return `The upload account can't see the folder (${DRIVE_ROOT}). Share it with ${SA && SA.client_email} as Content manager or Editor.`;
+  if (/403|insufficient|forbidden|permission/i.test(m)) return `The upload account can see the folder but can't add to it. Give ${SA && SA.client_email} Content manager (or Editor) access.`;
+  return m.slice(0, 300);
+}
+async function driveCheck() {
+  try {
+    const f = await gdrive(`drive/v3/files/${DRIVE_ROOT}?supportsAllDrives=true&fields=id,name,driveId,capabilities(canAddChildren)`);
+    return { ok: true, folder: f.name, sharedDrive: !!f.driveId, canAdd: !!(f.capabilities && f.capabilities.canAddChildren),
+      problem: !f.driveId ? explainDrive("storageQuotaExceeded") : !(f.capabilities && f.capabilities.canAddChildren) ? explainDrive("403") : null };
+  } catch (e) { return { ok: false, problem: explainDrive(e.message), detail: e.message.slice(0, 300) }; }
+}
 const usDate = iso => { const m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})$/); return m ? `${m[2]}/${m[3]}/${m[1]}` : ""; };
 const todayET = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" }); // YYYY-MM-DD
 // Labeled lines first, in the order the Jetty media library reads them (see Ambassador Form Build.md).
@@ -792,8 +810,10 @@ http.createServer(async (req, res) => {
         return send(res, 404, { ok: false });
       } catch (e) {
         if (e.status) return send(res, e.status, { ok: false, error: e.message });
-        console.error(JSON.stringify({ event: "upload_error", error: e.message }));
-        return send(res, e.message === "bad_code" || e.code === "ENOENT" ? 403 : 502, { ok: false, error: "The upload couldn't be set up. Try again in a minute." });
+        console.error(JSON.stringify({ event: "upload_error", error: e.message, cause: explainDrive(e.message) }));
+        let staff = false; try { const m = unlock(String(JSON.parse(raw).code || "").toUpperCase()); staff = !!(m.admin || m.t); } catch (x) {}
+        return send(res, e.message === "bad_code" || e.code === "ENOENT" ? 403 : 502, { ok: false,
+          error: staff ? "Upload setup problem: " + explainDrive(e.message) : "The upload couldn't be set up. Try again in a minute." });
       }
     }
     if (req.method === "POST" && url.pathname === "/api/admin/seasons") {
@@ -833,6 +853,7 @@ http.createServer(async (req, res) => {
         return send(res, 200, { ok: true, count: rows.length, sample: rows.slice(0, 2), tracking: findTracking(rows) });
       } catch (e) { return send(res, 502, { ok: false, error: e.message }); }
     }
+    if (url.pathname === "/api/health/drive") return send(res, 200, SA ? await driveCheck() : { ok: false, problem: explainDrive("") });
     if (url.pathname === "/api/health") {
       const out = { ok: true, build: BUILD, uploadsEnabled: !!SA, uploadsAccount: SA ? SA.client_email : null, savedRequests: readRequests().length, tokenSet: !!AM_TOKEN, dryRun: DRY_RUN, dataDir: DATA_DIR, persistentStorage: DATA_DIR === "/data", subdomain: AM_BASE.split("//")[1].split(".")[0] };
       if (url.searchParams.get("check") === "1" && process.env.ADMIN_KEY && url.searchParams.get("key") === process.env.ADMIN_KEY) {
