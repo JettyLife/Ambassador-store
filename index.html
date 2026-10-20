@@ -610,6 +610,10 @@ button.alink{font:inherit;font-size:13px;background:var(--surface);cursor:pointe
 @media (hover:none){.acbox kbd{display:none}}
 .acbox li.acgrp{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);padding:6px 10px 2px;cursor:default;background:none}
 .acbox li.sug{color:var(--ink)}
+.mailline{font-size:12.5px;color:var(--muted);margin:-2px 0 8px}
+.mailline .link{margin:0 0 0 6px}
+.rcard.focus{outline:3px solid var(--slate);outline-offset:2px;animation:focuspulse 1.6s ease-out 1}
+@keyframes focuspulse{0%{background:var(--accent-soft)}100%{background:var(--surface)}}
 </style></head><body>
 <header class="top">
   <div class="band">
@@ -722,6 +726,9 @@ async function unlock(code, blob){
 }
 async function loadMe(){
   let code = (location.hash || "").replace(/^#/, "").trim().toUpperCase();
+  // Links from Slack: #REQ-… (a gear request) or #UP-… (an upload). They open with the code saved on this device.
+  const deep = code.match(/^(REQ|UP)-[A-Z0-9]+$/);
+  if (deep) { S.deep = { type: deep[1], id: code }; code = ""; history.replaceState(null, "", location.pathname); }
   S.viewing = /-V$/.test(code); code = code.replace(/-V$/, "");
   if (!code) code = store.get("jas:code") || "";
   if (!/^[A-Z0-9]{8,32}$/.test(code)) return null;
@@ -1364,7 +1371,7 @@ async function loadUploads(){
 }
 function uploadRow(u, staff){
   const n = u.uploaded ?? u.files.length;
-  return `<article class="rcard ${u.done && n === u.files.length ? "st-done" : "st-open"}"><div class="rtop"><div><b>${staff ? esc(u.who.n) + " · " : ""}${esc(u.folder.name)}</b>
+  return `<article class="rcard ${u.done && n === u.files.length ? "st-done" : "st-open"}" data-item="${esc(u.id)}"><div class="rtop"><div><b>${staff ? esc(u.who.n) + " · " : ""}${esc(u.folder.name)}</b>
       <small>Submitted ${fmtDate(u.at.slice(0,10))}${u.test ? " · TEST" : ""}</small></div>
       ${staff ? `<a class="alink" href="${esc(u.folder.url)}" target="_blank" rel="noopener">Open folder ↗</a>` : `<span class="rpill">${u.done ? n + " of " + u.files.length + " uploaded" : "In progress"}</span>`}</div>
     <dl class="rdl"><dt>Shoot date</dt><dd>${fmtDate(u.form.shootDate || u.form.date)}</dd><dt>Location</dt><dd>${esc(u.form.location)}</dd><dt>Content</dt><dd>${[u.form.photo && "Photo", u.form.video && "Video"].filter(Boolean).join(" + ")} · Jetty product: ${esc(u.form.product)}</dd>
@@ -1552,11 +1559,16 @@ async function reqApi(action, extra){
 }
 async function loadMyRequests(){ try { REQ.mine = (await reqApi("mine")).requests; } catch (e) { REQ.mine = { error: true }; } renderProfile(); }
 async function loadAllRequests(){ try { REQ.all = (await reqApi("all")).requests; } catch (e) { REQ.all = { error: true }; } renderProfile(); }
+let FOCUS = "";   // item opened from a Slack link: scrolled to and highlighted once it's on the page
+function focusItem(){
+  if (!FOCUS) return; const el = document.querySelector(`[data-item="${CSS.escape(FOCUS)}"]`); if (!el) return;
+  el.classList.add("focus"); el.scrollIntoView({ behavior: "smooth", block: "center" }); FOCUS = "";
+}
 function reqCard(r, staff){
   const gear = r.gear.concat(r.other ? ["Other: " + r.other] : []);
-  return `<article class="rcard st-${esc(r.status.toLowerCase())}">
+  return `<article class="rcard st-${esc(r.status.toLowerCase())}" data-item="${esc(r.id)}">
     <div class="rtop"><div><b>${staff ? esc(r.who.n) + " · " : ""}${esc(r.location)}</b>
-      <small>Submitted ${fmtDate(r.at.slice(0,10))}${r.test ? " · TEST" : ""}</small></div>
+      <small>Submitted ${fmtDate(r.at.slice(0,10))}${r.test ? " · TEST" : ""}${staff && r.emailed ? " · Emailed" : ""}</small></div>
       ${staff ? `<select class="rstat" data-req="${esc(r.id)}" aria-label="Status">${["Open","Sent","Done","Declined"].map(s => `<option${s===r.status?" selected":""}>${s}</option>`).join("")}</select>`
         : `<span class="rpill">${esc(r.status === "Open" ? "Submitted" : r.status)}</span>`}</div>
     <dl class="rdl"><dt>Need by</dt><dd>${fmtDate(r.needBy)}</dd>
@@ -1599,12 +1611,28 @@ function requestsSection(){
       : mine.length ? `<div class="rlist">${mine.map(r => reqCard(r)).join("")}</div>` : (REQ.form ? "" : `<p class="hint">No requests yet. Planning a shoot? Let us know what gear you need.</p>`)}
   </section>`;
 }
+let MAIL = null, SLACK = null;
+async function loadMail(){
+  try { [SLACK, MAIL] = await Promise.all([reqApi("slack"), reqApi("email")]); } catch (e) { SLACK = { error: true }; MAIL = { error: true }; }
+  renderProfile();
+}
+const EVENT_NAMES = { requests: "gear requests", uploads: "content uploads", pending: "orders over allowance", orders: "every order" };
+function mailBar(){
+  if (SLACK === null) { SLACK = "loading"; loadMail(); }
+  if (!SLACK || SLACK === "loading" || SLACK.error) return "";
+  return `<div class="gconn${SLACK.ready ? " on" : ""}"><div><b>Slack notifications:</b> ${SLACK.ready
+      ? `on for ${SLACK.events.map(e => EVENT_NAMES[e] || e).join(", ")}` : "not connected yet. Add SLACK_WEBHOOK_URL in Railway."}</div>
+    ${SLACK.ready ? `<div class="alinks"><button type="button" class="alink" id="slack-test">Send test message</button></div>` : ""}</div>
+    ${MAIL && !MAIL.error ? `<div class="mailline">Jon's Gmail (for ambassador emails): ${MAIL.ready ? `connected as ${esc(MAIL.from)}` : "not connected"}
+      ${MAIL.canConnect ? `<button type="button" class="link" id="mail-connect">${MAIL.ready ? "Reconnect" : "Connect"}</button>` : ""}</div>` : ""}`;
+}
 function staffRequestsPanel(){
   if (REQ.all === null) { REQ.all = "loading"; loadAllRequests(); }
   const all = Array.isArray(REQ.all) ? REQ.all : [];
   const shown = all.filter(r => REQ.filter === "All" || r.status === REQ.filter);
   return `<div class="ambh"><div class="pwho"><span class="av big dark">↗</span><div><small>All ambassadors</small><h2>Photo Gear Requests</h2>
       <p class="hint">Photoshoot gear requests from every ambassador, newest first.</p></div></div></div>
+    ${mailBar()}
     <div class="chips rfilt">${["Open","Sent","Done","Declined","All"].map(f => `<button type="button" class="chip" data-rfilter="${f}" aria-pressed="${REQ.filter===f}">${f}${f!=="All" ? ` <small>${all.filter(r=>r.status===f).length}</small>` : ""}</button>`).join("")}</div>
     ${REQ.all === "loading" ? `<p class="hint pload">Loading requests…</p>` : REQ.all && REQ.all.error ? `<p class="hint pload">Couldn't load requests.</p>`
       : shown.length ? `<div class="rlist">${shown.map(r => reqCard(r, true)).join("")}</div>` : `<p class="hint pload">No ${REQ.filter === "All" ? "" : REQ.filter.toLowerCase() + " "}requests.</p>`}`;
@@ -1640,6 +1668,7 @@ function renderProfile(){
     : myPanel();
   body.classList.add("staffgrid");
   body.innerHTML = profileSidebar() + `<section class="pmain">${main}</section>`;
+  if (FOCUS) setTimeout(focusItem, 60);
   const l = body.querySelector(".alist"); if (l) l.scrollTop = keepScroll;
 }
 $("who").addEventListener("click", openProfile);
@@ -1661,6 +1690,11 @@ $("profBody").addEventListener("change", async e => {
   if (st) { try { const j = await reqApi("status", { id: st.dataset.req, status: st.value }); const r = REQ.all.find(x => x.id === j.request.id); if (r) r.status = j.request.status; toast("Status updated"); } catch (x) { toast(x.message); } renderProfile(); }
 });
 $("profBody").addEventListener("click", e => {
+  if (e.target.id === "slack-test") { e.target.disabled = true; e.target.textContent = "Sending…";
+    reqApi("slack-test").then(() => toast("Test message sent to Slack")).catch(x => toast(x.message)).finally(() => { e.target.disabled = false; e.target.textContent = "Send test message"; }); return; }
+  if (e.target.id === "mail-connect") { e.target.disabled = true; reqApi("email-connect").then(j => { location.href = j.url; }).catch(x => { toast(x.message); e.target.disabled = false; }); return; }
+  if (e.target.id === "mail-test") { e.target.disabled = true; e.target.textContent = "Sending…";
+    reqApi("email-test").then(j => toast("Test email sent to " + j.to.join(", "))).catch(x => toast(x.message)).finally(() => { e.target.disabled = false; e.target.textContent = "Send test email"; }); return; }
   if (e.target.id === "g-connect") { e.target.disabled = true; upApi("connect").then(j => { location.href = j.url; }).catch(x => { toast(x.message); e.target.disabled = false; }); return; }
   if (e.target.id === "up-open") { UP.open = true; UP.result = null; UP.err = ""; renderUpModal(); setTimeout(() => $("up-date")?.focus(), 30);
     if (!UPOPT.loaded) loadUpOptions().then(() => { if (UP.open && !UP.busy) { readUp(); renderUpModal(); } }); return; }
@@ -1734,10 +1768,16 @@ window.addEventListener("beforeunload", e => { if (UP.busy) { e.preventDefault()
 (async function boot(){
   renderHeader();
   S.me = await loadMe();
-  if (!S.me) { $("whoNm").textContent = "—"; showGate(); return; }
+  if (!S.me) { $("whoNm").textContent = "—"; showGate();
+    if (S.deep) $("gateP").textContent = "To open this from Slack, first open the Jetty Admin link once on this device. After that, Slack links open straight to the item."; return; }
   S.cart = store.get(K("cart")) || {};
   renderHeader(); renderChips(); renderGrid();
   loadSpent();
+  if (S.deep) {
+    if (!isStaff()) { toast("That link is for Jetty staff. Open the Jetty Admin link on this device first."); }
+    else { store.set(K("sizesAsked"), true); openProfile(); ADM.open = null; PTAB = S.deep.type === "REQ" ? "requests" : "upload"; REQ.filter = "All"; FOCUS = S.deep.id; renderProfile(); }
+    return;
+  }
   if (!store.get(K("sizesAsked"))) openSizes(true);
 })();
 window.addEventListener("hashchange", () => location.reload());

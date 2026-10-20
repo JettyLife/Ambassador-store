@@ -419,6 +419,27 @@ async function history(me) {
   return data;
 }
 
+/* ---------- internal notifications to Slack (Incoming Webhook) ----------
+   Railway variables: SLACK_WEBHOOK_URL (from a Slack app's Incoming Webhooks, posts to one channel)
+                      SLACK_NOTIFY (optional) which events, default "requests,uploads,pending"; add "orders" for every order */
+const SLACK_URL = process.env.SLACK_WEBHOOK_URL || "";
+const SLACK_ON = new Set((process.env.SLACK_NOTIFY || "requests,uploads,pending").split(",").map(x => x.trim().toLowerCase()).filter(Boolean));
+const SITE = () => process.env.PUBLIC_URL || "https://jettyambassador.up.railway.app";
+const slackEsc = v => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+async function postSlack(text, blocks) {
+  if (!SLACK_URL) return false;
+  const r = await fetch(SLACK_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, blocks }) });
+  if (!r.ok) throw new Error(`Slack ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  return true;
+}
+function notify(kind, text, blocks) {
+  if (!SLACK_URL || !SLACK_ON.has(kind)) return;
+  postSlack(text, blocks).catch(e => console.error(JSON.stringify({ event: "slack_failed", kind, error: e.message })));
+}
+const sDate = d => d ? new Date(String(d).slice(0, 10) + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" }) : "";
+const fieldsBlock = rows => ({ type: "section", fields: rows.filter(x => x[1]).slice(0, 10).map(([k, v]) => ({ type: "mrkdwn", text: `*${slackEsc(k)}*\n${slackEsc(v)}` })) });
+const ctx = t => ({ type: "context", elements: [{ type: "mrkdwn", text: t }] });
+
 /* ---------- photoshoot gear requests ---------- */
 // Stored as JSON on disk. On Railway attach a Volume mounted at /data so requests survive redeploys.
 const DATA_DIR = process.env.DATA_DIR || (fs.existsSync("/data") ? "/data" : path.join(ROOT, "data"));
@@ -446,7 +467,23 @@ function newRequest(me, f) {
   if (!r.gear.length && !r.other) throw Object.assign(new Error("Choose at least one kind of gear."), { status: 400 });
   const list = readRequests(); list.push(r); writeRequests(list);
   console.log(JSON.stringify({ event: "gear_request", id: r.id, who: r.who.n, needBy: r.needBy, gear: r.gear, other: r.other }));
-  // TODO (email): send the request details + who it came from once an email service is chosen.
+  // Internal notice goes to Slack. Never blocks the request.
+  const gearTxt = r.gear.concat(r.other ? ["Other: " + r.other] : []).join(", ");
+  notify("requests", `${r.test ? "[TEST] " : ""}Gear request from ${r.who.n}: need by ${sDate(r.needBy)}`, [
+    { type: "header", text: { type: "plain_text", text: `${r.test ? "[TEST] " : ""}Photo gear request` } },
+    { type: "section", text: { type: "mrkdwn", text: `*${slackEsc(r.who.n)}* needs gear for a shoot at *${slackEsc(r.location)}*` } },
+    fieldsBlock([["Need by", sDate(r.needBy)], ["Shoot date", sDate(r.shootDate)], ["Gear", gearTxt], ["Sizes", r.sizes], ["Email", r.who.e], ["AM customer", r.who.amc]]),
+    ...(r.notes ? [{ type: "section", text: { type: "mrkdwn", text: `*Notes*\n${slackEsc(r.notes)}` } }] : []),
+    { type: "actions", elements: [{ type: "button", style: "primary", text: { type: "plain_text", text: "Open request" }, url: `${SITE()}/#${r.id}` }] },
+    ctx(`Request ${r.id} · Opens in Jetty Ambassador on a device where the Jetty Admin link has been used`),
+  ]);
+  // Optional email copy (only if REQUEST_EMAIL_TO is set in Railway and Jon's Gmail is connected).
+  if (process.env.REQUEST_EMAIL_TO && mailReady()) {
+    const m = gearRequestEmail(r, process.env.PUBLIC_URL || "https://jettyambassador.up.railway.app");
+    sendMail({ to: MAIL_TO, replyTo: r.who.e, ...m })
+      .then(id => { const all = readRequests(), x = all.find(q => q.id === r.id); if (x) { x.emailed = new Date().toISOString(); writeRequests(all); } })
+      .catch(e => console.error(JSON.stringify({ event: "gear_request_email_failed", id: r.id, error: e.message })));
+  }
   return r;
 }
 
@@ -491,17 +528,22 @@ async function googleToken() {
   gTok = { token: j.access_token, exp: Date.now() + (j.expires_in || 3600) * 1000, mode };
   return gTok.token;
 }
-const oauthStates = new Map(); // state -> expiry
+const oauthStates = new Map(); // state -> {exp, kind}
 function siteUrl(req) { return process.env.PUBLIC_URL || `https://${req.headers.host}`; }
-function connectUrl(req) {
-  const state = crypto.randomBytes(16).toString("hex"); oauthStates.set(state, Date.now() + 10 * 60000);
+// kind "drive" = Tyler's account for uploads; kind "gmail" = Jon's account for sending notification emails.
+const MAIL_FROM = process.env.MAIL_FROM || "joncoen@jettylife.com";
+const CONNECT = {
+  drive: { scope: "https://www.googleapis.com/auth/drive openid email", hint: process.env.GOOGLE_UPLOAD_ACCOUNT || "tyler@jettylife.com", file: () => OAUTH_FILE() },
+  gmail: { scope: "https://www.googleapis.com/auth/gmail.send openid email", hint: MAIL_FROM, file: () => path.join(DATA_DIR, "google-gmail.json") },
+};
+function connectUrl(req, kind = "drive") {
+  const c = CONNECT[kind], state = crypto.randomBytes(16).toString("hex"); oauthStates.set(state, { exp: Date.now() + 10 * 60000, kind });
   return "https://accounts.google.com/o/oauth2/v2/auth?" + new URLSearchParams({ client_id: GO.id, redirect_uri: siteUrl(req) + "/api/google/callback",
-    response_type: "code", scope: "https://www.googleapis.com/auth/drive openid email", access_type: "offline", prompt: "consent",
-    include_granted_scopes: "true", login_hint: process.env.GOOGLE_UPLOAD_ACCOUNT || "tyler@jettylife.com", state }).toString();
+    response_type: "code", scope: c.scope, access_type: "offline", prompt: "consent", login_hint: c.hint, state }).toString();
 }
 async function finishConnect(req, url) {
-  const state = url.searchParams.get("state"), code = url.searchParams.get("code");
-  if (!state || !(oauthStates.get(state) > Date.now())) throw new Error("This approval link expired. Go back to the admin profile and click Connect Google Drive again.");
+  const state = url.searchParams.get("state"), code = url.searchParams.get("code"), st = oauthStates.get(state || "");
+  if (!st || !(st.exp > Date.now())) throw new Error("This approval link expired. Go back to the admin profile and click Connect again.");
   oauthStates.delete(state);
   if (url.searchParams.get("error")) throw new Error("Google approval was cancelled (" + url.searchParams.get("error") + ").");
   const r = await fetch(GTOKEN, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -509,10 +551,56 @@ async function finishConnect(req, url) {
   const j = await r.json().catch(() => ({}));
   if (!r.ok || !j.refresh_token) throw new Error("Google didn't return a long-term approval: " + JSON.stringify(j).slice(0, 200));
   let email = ""; try { email = JSON.parse(Buffer.from(String(j.id_token).split(".")[1], "base64url").toString()).email || ""; } catch (e) {}
-  writeJson(OAUTH_FILE(), { refresh_token: j.refresh_token, email, at: new Date().toISOString() });
-  gTok = { token: "", exp: 0 };
-  console.log(JSON.stringify({ event: "google_connected", email }));
-  return email;
+  writeJson(CONNECT[st.kind].file(), { refresh_token: j.refresh_token, email, at: new Date().toISOString() });
+  if (st.kind === "drive") gTok = { token: "", exp: 0 }; else mTok = { token: "", exp: 0 };
+  console.log(JSON.stringify({ event: "google_connected", kind: st.kind, email }));
+  return { email, kind: st.kind };
+}
+
+/* ---------- email (Gmail API, sent as the connected sender, e.g. joncoen@jettylife.com) ---------- */
+const MAIL_TO = (process.env.REQUEST_EMAIL_TO || MAIL_FROM).split(",").map(x => x.trim()).filter(Boolean);
+let mTok = { token: "", exp: 0 };
+const mailSaved = () => readJson(CONNECT.gmail.file(), null);
+const mailReady = () => !!(GO.id && GO.secret && mailSaved()?.refresh_token);
+async function mailToken() {
+  if (!mailReady()) throw new Error("Email isn't connected yet.");
+  if (mTok.token && Date.now() < mTok.exp - 60000) return mTok.token;
+  const r = await fetch(GTOKEN, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: mailSaved().refresh_token, client_id: GO.id, client_secret: GO.secret }).toString() });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j.access_token) throw new Error("Gmail sign-in failed: " + JSON.stringify(j).slice(0, 200));
+  mTok = { token: j.access_token, exp: Date.now() + (j.expires_in || 3600) * 1000 };
+  return mTok.token;
+}
+const hdr = v => /[^\x20-\x7e]/.test(v) ? "=?UTF-8?B?" + Buffer.from(v).toString("base64") + "?=" : v;
+async function sendMail({ to, subject, text, html, replyTo }) {
+  const from = mailSaved()?.email || MAIL_FROM, b = "jasmail" + crypto.randomBytes(6).toString("hex");
+  const msg = [
+    `From: ${hdr("Jetty Ambassador")} <${from}>`, `To: ${[].concat(to).join(", ")}`, ...(replyTo ? [`Reply-To: ${replyTo}`] : []),
+    `Subject: ${hdr(subject)}`, "MIME-Version: 1.0", `Content-Type: multipart/alternative; boundary="${b}"`, "",
+    `--${b}`, "Content-Type: text/plain; charset=UTF-8", "Content-Transfer-Encoding: base64", "", Buffer.from(text).toString("base64"),
+    `--${b}`, "Content-Type: text/html; charset=UTF-8", "Content-Transfer-Encoding: base64", "", Buffer.from(html || text).toString("base64"), `--${b}--`,
+  ].join("\r\n");
+  const r = await fetch((process.env.GMAIL_API_BASE || "https://gmail.googleapis.com/") + "gmail/v1/users/me/messages/send", {
+    method: "POST", headers: { Authorization: "Bearer " + await mailToken(), "Content-Type": "application/json" }, body: JSON.stringify({ raw: Buffer.from(msg).toString("base64url") }) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(`Gmail ${r.status}: ${JSON.stringify(j.error || j).slice(0, 300)}`);
+  return j.id;
+}
+const escH = v => String(v ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+function gearRequestEmail(r, site) {
+  const nice = d => d ? new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" }) : "";
+  const gear = r.gear.concat(r.other ? ["Other: " + r.other] : []).join(", ");
+  const rows = [["Ambassador", r.who.n], ["Email", r.who.e], ["AM customer", r.who.amc], ["Shoot location", r.location], ["Need gear by", nice(r.needBy)],
+    ["Shoot date", nice(r.shootDate)], ["Gear", gear], ["Sizes", r.sizes], ["Notes", r.notes], ["Request ID", r.id]].filter(x => x[1]);
+  const subject = `${r.test ? "[TEST] " : ""}Gear request: ${r.who.n} – need by ${nice(r.needBy)}`;
+  const text = `New photoshoot gear request${r.test ? " (TEST)" : ""}\n\n` + rows.map(([k, v]) => `${k}: ${v}`).join("\n")
+    + `\n\nManage it in Jetty Ambassador: Jetty Admin profile → Photo Gear Requests\n${site}`;
+  const html = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#0d0f10;max-width:560px">
+    <div style="background:#43575E;color:#fff;padding:14px 18px;font-weight:bold;letter-spacing:.06em">JETTY AMBASSADOR · GEAR REQUEST${r.test ? " (TEST)" : ""}</div>
+    <table style="border-collapse:collapse;width:100%;margin:10px 0">${rows.map(([k, v]) => `<tr><td style="padding:7px 10px;color:#5b6b71;border-bottom:1px solid #e3e9eb;white-space:nowrap;vertical-align:top">${escH(k)}</td><td style="padding:7px 10px;border-bottom:1px solid #e3e9eb">${escH(v).replace(/\n/g, "<br>")}</td></tr>`).join("")}</table>
+    <p style="color:#5b6b71">Reply to this email to reach ${escH(r.who.n)} directly. Update the status in Jetty Ambassador under Jetty Admin → Photo Gear Requests.</p></div>`;
+  return { subject, text, html };
 }
 async function gdrive(pathAndQuery, opts = {}) {
   const r = await fetch(GAPI + pathAndQuery, { ...opts, headers: { Authorization: "Bearer " + await googleToken(), ...(opts.headers || {}) } });
@@ -673,6 +761,18 @@ async function finishUpload(me, id, results) {
   catch (e) { console.error(JSON.stringify({ event: "upload_info_update_failed", error: e.message })); }
   writeJson(UPLOADS_FILE(), all);
   console.log(JSON.stringify({ event: "upload_finished", id, uploaded: rec.uploaded, missing }));
+  const photos = rec.files.filter(x => x.status === "uploaded" && /^image\//.test(x.type)).length, videos = rec.files.filter(x => x.status === "uploaded" && /^video\//.test(x.type)).length;
+  const gb = rec.files.filter(x => x.status === "uploaded").reduce((t, x) => t + x.size, 0) / 1073741824;
+  notify("uploads", `${rec.test ? "[TEST] " : ""}New content from ${me.n}: ${rec.folder.name}`, [
+    { type: "header", text: { type: "plain_text", text: `${rec.test ? "[TEST] " : ""}New ambassador content` } },
+    { type: "section", text: { type: "mrkdwn", text: `*${slackEsc(me.n)}* uploaded *${slackEsc(rec.folder.name)}*` },
+      accessory: { type: "button", text: { type: "plain_text", text: "Open folder" }, url: rec.folder.url } },
+    { type: "actions", elements: [{ type: "button", text: { type: "plain_text", text: "View in Jetty Ambassador" }, url: `${SITE()}/#${rec.id}` }] },
+    fieldsBlock([["Files", `${photos} photo${photos === 1 ? "" : "s"}, ${videos} video${videos === 1 ? "" : "s"} (${gb >= 1 ? gb.toFixed(1) + " GB" : Math.round(gb * 1024) + " MB"})`],
+      ["Shoot date", sDate(rec.form.shootDate)], ["Location", rec.form.location], ["Shot by", rec.form.photographer], ["Jetty product", rec.form.product]]),
+    ...(rec.form.notes ? [{ type: "section", text: { type: "mrkdwn", text: `*Shoot notes*\n${slackEsc(rec.form.notes)}` } }] : []),
+    ...(missing ? [ctx(`:warning: ${missing} file(s) didn't finish uploading.`)] : []),
+  ]);
   return { uploaded: rec.uploaded, missing, folder: rec.folder.name };
 }
 
@@ -779,6 +879,14 @@ async function handleOrder(input) {
   const out = { ok: true, orderId, amOrderId, spent: Math.round(total * 100) / 100, pending: overAllowance };
   if (orderId) seen.set(orderId, out);
   console.log(JSON.stringify({ event: "order_created", orderId, amOrderId, creditStatus: header.credit_status }));
+  const kind = overAllowance ? "pending" : "orders";
+  if (SLACK_ON.has(kind) || (overAllowance && SLACK_ON.has("orders"))) notify(SLACK_ON.has(kind) ? kind : "orders",
+    `${me.t ? "[TEST] " : ""}${overAllowance ? "Order over allowance (Pending)" : "New order"}: ${me.n}`, [
+    { type: "header", text: { type: "plain_text", text: `${me.t ? "[TEST] " : ""}${overAllowance ? "Order over allowance: Pending review" : "New ambassador order"}` } },
+    fieldsBlock([["Ambassador", me.n], ["AM order", String(amOrderId || "")], ["PO", me.po], ["This order", `$${retail.toFixed(2)} retail, ${units} units`],
+      ["Season total", `$${total.toFixed(2)} of $${Number(me.a).toFixed(2)}${overAllowance ? ` (over by $${(total - me.a).toFixed(2)})` : ""}`], ["Fulfillment", fulfil]]),
+    ...(overAllowance ? [ctx("Approve or adjust it in ApparelMagic (credit status is Pending).")] : []),
+  ]);
   return out;
 }
 
@@ -858,6 +966,20 @@ http.createServer(async (req, res) => {
         if (action === "mine") return send(res, 200, { ok: true, requests: readRequests().filter(r => r.who.id === me.id).reverse() });
         if (!me.admin) return send(res, 403, { ok: false });
         if (action === "all") return send(res, 200, { ok: true, requests: readRequests().reverse() });
+        if (action === "slack") return send(res, 200, { ok: true, ready: !!SLACK_URL, events: [...SLACK_ON] });
+        if (action === "slack-test") {
+          if (!SLACK_URL) return send(res, 503, { ok: false, error: "Add SLACK_WEBHOOK_URL in Railway first." });
+          try { await postSlack("Jetty Ambassador is connected to this channel.", [{ type: "section", text: { type: "mrkdwn", text: `:white_check_mark: *Jetty Ambassador* is connected to this channel.\nYou'll get: ${[...SLACK_ON].join(", ")}.` } }]);
+            return send(res, 200, { ok: true }); } catch (e) { return send(res, 502, { ok: false, error: e.message.slice(0, 200) }); }
+        }
+        if (action === "email") return send(res, 200, { ok: true, ready: mailReady(), from: mailSaved()?.email || "", to: MAIL_TO, canConnect: !!(GO.id && GO.secret) });
+        if (action === "email-connect") { if (!GO.id || !GO.secret) return send(res, 503, { ok: false, error: "Add GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET in Railway first." });
+          return send(res, 200, { ok: true, url: connectUrl(req, "gmail") }); }
+        if (action === "email-test") {
+          try { await sendMail({ to: MAIL_TO, subject: "[TEST] Jetty Ambassador email is working", text: `This is a test from Jetty Ambassador.\nGear requests will be emailed to: ${MAIL_TO.join(", ")}` });
+            return send(res, 200, { ok: true, to: MAIL_TO }); }
+          catch (e) { return send(res, 502, { ok: false, error: /insufficient|scope|403/i.test(e.message) ? "Gmail refused. Make sure the Gmail API is enabled in the Cloud project, then reconnect." : e.message.slice(0, 200) }); }
+        }
         if (action === "status") {
           const list = readRequests(), r = list.find(x => x.id === body.id);
           if (!r || !["Open", "Sent", "Done", "Declined"].includes(body.status)) return send(res, 400, { ok: false });
@@ -935,12 +1057,14 @@ http.createServer(async (req, res) => {
     if (url.pathname === "/api/places") return send(res, 200, { ok: true, places: await placeSuggestions(url.searchParams.get("q")) });
     if (url.pathname === "/api/google/callback") {
       const page = (title, msg) => `<!doctype html><meta name=viewport content="width=device-width,initial-scale=1"><title>Jetty Ambassador</title><body style="font-family:system-ui;max-width:480px;margin:12vh auto;padding:0 16px;color:#0d0f10"><h2 style="color:#43575E">${title}</h2><p>${msg}</p><p><a href="/" style="color:#43575E">Back to Jetty Ambassador</a></p></body>`;
-      try { const email = await finishConnect(req, url); return send(res, 200, page("Google Drive connected", `Uploads will now go to Drive as <b>${email || "the approved account"}</b>. You can close this page.`), "text/html; charset=utf-8"); }
+      try { const c = await finishConnect(req, url);
+        return send(res, 200, c.kind === "gmail" ? page("Email connected", `Notification emails will now be sent from <b>${c.email || "the approved account"}</b>. You can close this page.`)
+          : page("Google Drive connected", `Uploads will now go to Drive as <b>${c.email || "the approved account"}</b>. You can close this page.`), "text/html; charset=utf-8"); }
       catch (e) { return send(res, 400, page("Couldn't connect Google Drive", String(e.message).replace(/</g, "&lt;")), "text/html; charset=utf-8"); }
     }
     if (url.pathname === "/api/health/drive") return send(res, 200, googleReady() ? await driveCheck() : { ok: false, problem: explainDrive("") });
     if (url.pathname === "/api/health") {
-      const out = { ok: true, build: BUILD, uploadsEnabled: googleReady(), uploadsMode: googleMode(), uploadsAccount: googleMode() === "account" ? oauthSaved().email : SA ? SA.client_email : null, savedRequests: readRequests().length, tokenSet: !!AM_TOKEN, dryRun: DRY_RUN, dataDir: DATA_DIR, persistentStorage: DATA_DIR === "/data", subdomain: AM_BASE.split("//")[1].split(".")[0] };
+      const out = { ok: true, build: BUILD, slackReady: !!SLACK_URL, slackEvents: [...SLACK_ON], emailReady: mailReady(), emailFrom: mailSaved()?.email || null, emailTo: MAIL_TO, uploadsEnabled: googleReady(), uploadsMode: googleMode(), uploadsAccount: googleMode() === "account" ? oauthSaved().email : SA ? SA.client_email : null, savedRequests: readRequests().length, tokenSet: !!AM_TOKEN, dryRun: DRY_RUN, dataDir: DATA_DIR, persistentStorage: DATA_DIR === "/data", subdomain: AM_BASE.split("//")[1].split(".")[0] };
       if (url.searchParams.get("check") === "1" && process.env.ADMIN_KEY && url.searchParams.get("key") === process.env.ADMIN_KEY) {
         try { out.warehouseId = await warehouseId(); out.divisionId = await divisionId(); out.amReachable = true; } catch (e) { out.amReachable = false; out.amError = e.message; }
       }
