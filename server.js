@@ -432,8 +432,24 @@ async function postSlack(text, blocks) {
   if (!r.ok) throw new Error(`Slack ${r.status}: ${(await r.text()).slice(0, 200)}`);
   return true;
 }
-function notify(kind, text, blocks) {
+// Who gets @-mentioned per alert. Railway variable SLACK_MENTIONS overrides, e.g.
+// "requests:U0C9M2Q15GC;uploads:U0C9M2Q15GC;pending:U0C9M2Q15GC,UM3REF944;orders:" (Slack member IDs; Jon = U0C9M2Q15GC, Arlynn = U0BPU0W4BCK, Tyler = UM3REF944)
+const SLACK_MENTIONS = (() => {
+  const m = { requests: ["U0C9M2Q15GC", "U0BPU0W4BCK"], uploads: ["U0C9M2Q15GC", "U0BPU0W4BCK"], pending: ["U0C9M2Q15GC"], orders: [] };
+  for (const part of String(process.env.SLACK_MENTIONS || "").split(";")) {
+    const [k, v] = part.split(":"); if (!k || !(k.trim().toLowerCase() in m) || v === undefined) continue;
+    m[k.trim().toLowerCase()] = v.split(",").map(x => x.trim()).filter(x => /^[UW][A-Z0-9]{6,}$/.test(x));
+  }
+  return m;
+})();
+function notify(kind, text, blocks, test) {
   if (!SLACK_URL || !SLACK_ON.has(kind)) return;
+  const who = test ? [] : (SLACK_MENTIONS[kind] || []);      // test activity never pings anyone
+  if (who.length) {
+    const tag = who.map(id => `<@${id}>`).join(" ");
+    text = `${tag} ${text}`;
+    blocks = [{ type: "section", text: { type: "mrkdwn", text: tag } }, ...blocks];
+  }
   postSlack(text, blocks).catch(e => console.error(JSON.stringify({ event: "slack_failed", kind, error: e.message })));
 }
 const sDate = d => d ? new Date(String(d).slice(0, 10) + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" }) : "";
@@ -476,7 +492,7 @@ function newRequest(me, f) {
     ...(r.notes ? [{ type: "section", text: { type: "mrkdwn", text: `*Notes*\n${slackEsc(r.notes)}` } }] : []),
     { type: "actions", elements: [{ type: "button", style: "primary", text: { type: "plain_text", text: "Open request" }, url: `${SITE()}/#${r.id}` }] },
     ctx(`Request ${r.id} · Opens in Jetty Ambassador on a device where the Jetty Admin link has been used`),
-  ]);
+  ], r.test);
   // Optional email copy (only if REQUEST_EMAIL_TO is set in Railway and Jon's Gmail is connected).
   if (process.env.REQUEST_EMAIL_TO && mailReady()) {
     const m = gearRequestEmail(r, process.env.PUBLIC_URL || "https://jettyambassador.up.railway.app");
@@ -772,7 +788,7 @@ async function finishUpload(me, id, results) {
       ["Shoot date", sDate(rec.form.shootDate)], ["Location", rec.form.location], ["Shot by", rec.form.photographer], ["Jetty product", rec.form.product]]),
     ...(rec.form.notes ? [{ type: "section", text: { type: "mrkdwn", text: `*Shoot notes*\n${slackEsc(rec.form.notes)}` } }] : []),
     ...(missing ? [ctx(`:warning: ${missing} file(s) didn't finish uploading.`)] : []),
-  ]);
+  ], rec.test);
   return { uploaded: rec.uploaded, missing, folder: rec.folder.name };
 }
 
@@ -886,7 +902,7 @@ async function handleOrder(input) {
     fieldsBlock([["Ambassador", me.n], ["AM order", String(amOrderId || "")], ["PO", me.po], ["This order", `$${retail.toFixed(2)} retail, ${units} units`],
       ["Season total", `$${total.toFixed(2)} of $${Number(me.a).toFixed(2)}${overAllowance ? ` (over by $${(total - me.a).toFixed(2)})` : ""}`], ["Fulfillment", fulfil]]),
     ...(overAllowance ? [ctx("Approve or adjust it in ApparelMagic (credit status is Pending).")] : []),
-  ]);
+  ], me.t);
   return out;
 }
 
@@ -966,10 +982,12 @@ http.createServer(async (req, res) => {
         if (action === "mine") return send(res, 200, { ok: true, requests: readRequests().filter(r => r.who.id === me.id).reverse() });
         if (!me.admin) return send(res, 403, { ok: false });
         if (action === "all") return send(res, 200, { ok: true, requests: readRequests().reverse() });
-        if (action === "slack") return send(res, 200, { ok: true, ready: !!SLACK_URL, events: [...SLACK_ON] });
+        if (action === "slack") return send(res, 200, { ok: true, ready: !!SLACK_URL, events: [...SLACK_ON], mentions: SLACK_MENTIONS });
         if (action === "slack-test") {
           if (!SLACK_URL) return send(res, 503, { ok: false, error: "Add SLACK_WEBHOOK_URL in Railway first." });
-          try { await postSlack("Jetty Ambassador is connected to this channel.", [{ type: "section", text: { type: "mrkdwn", text: `:white_check_mark: *Jetty Ambassador* is connected to this channel.\nYou'll get: ${[...SLACK_ON].join(", ")}.` } }]);
+          const names = { requests: "Gear requests", uploads: "Content uploads", pending: "Orders over allowance", orders: "Every order" };
+          const lines = [...SLACK_ON].map(k => `• ${names[k] || k}: ${(SLACK_MENTIONS[k] || []).map(id => `<@${id}>`).join(" ") || "no one tagged"}`).join("\n");
+          try { await postSlack("Jetty Ambassador is connected to this channel.", [{ type: "section", text: { type: "mrkdwn", text: `:white_check_mark: *Jetty Ambassador* is connected to this channel.\nAlerts and who gets tagged:\n${lines}` } }]);
             return send(res, 200, { ok: true }); } catch (e) { return send(res, 502, { ok: false, error: e.message.slice(0, 200) }); }
         }
         if (action === "email") return send(res, 200, { ok: true, ready: mailReady(), from: mailSaved()?.email || "", to: MAIL_TO, canConnect: !!(GO.id && GO.secret) });
