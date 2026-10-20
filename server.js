@@ -444,7 +444,8 @@ const SLACK_MENTIONS = (() => {
 })();
 function notify(kind, text, blocks, test) {
   if (!SLACK_URL || !SLACK_ON.has(kind)) return;
-  const who = test ? [] : (SLACK_MENTIONS[kind] || []);      // test activity never pings anyone
+  // Test activity (Sandbox, Jetty Admin) doesn't ping anyone, unless Railway variable SLACK_TAG_TESTS = 1 (for checking the tags).
+  const who = test && process.env.SLACK_TAG_TESTS !== "1" ? [] : (SLACK_MENTIONS[kind] || []);
   if (who.length) {
     const tag = who.map(id => `<@${id}>`).join(" ");
     text = `${tag} ${text}`;
