@@ -1624,7 +1624,8 @@ function mailBar(){
       ? `on for ${SLACK.events.map(e => EVENT_NAMES[e] || e).join(", ")}` : "not connected yet. Add SLACK_WEBHOOK_URL in Railway."}</div>
     ${SLACK.ready ? `<div class="alinks"><button type="button" class="alink" id="slack-test">Send test message</button></div>` : ""}</div>
     ${MAIL && !MAIL.error ? `<div class="mailline">Jon's Gmail (for ambassador emails): ${MAIL.ready ? `connected as ${esc(MAIL.from)}` : "not connected"}
-      ${MAIL.canConnect ? `<button type="button" class="link" id="mail-connect">${MAIL.ready ? "Reconnect" : "Connect"}</button>` : ""}</div>` : ""}`;
+      ${MAIL.canConnect ? `<button type="button" class="link" id="mail-connect">${MAIL.ready ? "Reconnect" : "Connect"}</button>` : ""}
+      ${MAIL.ready ? `<button type="button" class="link" id="mail-test">Send test email</button>` : ""}</div>` : ""}`;
 }
 function staffRequestsPanel(){
   if (REQ.all === null) { REQ.all = "loading"; loadAllRequests(); }
