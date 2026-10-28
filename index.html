@@ -1317,9 +1317,9 @@ function myPanel(){
 /* ===== Upload Content (to Jetty's Google Drive) ===== */
 let UP = { list: null, enabled: true, staffList: null, open: false, f: { photo: false, video: false, product: "" }, files: [], err: "", busy: false, prog: {}, result: null };
 const EXAMPLES = ["Surf OBX", "Hike NY", "Alaska", "Costa Trip", "Nica Surf"];
-let UPOPT = { locations: [], photographers: [], today: "", loaded: false };
+let UPOPT = { locations: [], photographers: [], people: [], self: "", today: "", loaded: false };
 async function loadUpOptions(){
-  try { const j = await upApi("options"); UPOPT = { locations: j.locations || [], photographers: j.photographers || [], today: j.today || "", loaded: true }; } catch (e) {}
+  try { const j = await upApi("options"); UPOPT = { locations: j.locations || [], photographers: j.photographers || [], people: j.people || [], self: j.self || "", today: j.today || "", loaded: true }; } catch (e) {}
 }
 const localToday = () => { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0"); };
 /* Suggest-as-you-type: close spellings already on file, but any spelling is still allowed */
@@ -1375,7 +1375,7 @@ function uploadRow(u, staff){
       <small>Submitted ${fmtDate(u.at.slice(0,10))}${u.test ? " · TEST" : ""}</small></div>
       ${staff ? `<a class="alink" href="${esc(u.folder.url)}" target="_blank" rel="noopener">Open folder ↗</a>` : `<span class="rpill">${u.done ? n + " of " + u.files.length + " uploaded" : "In progress"}</span>`}</div>
     <dl class="rdl"><dt>Shoot date</dt><dd>${fmtDate(u.form.shootDate || u.form.date)}</dd><dt>Location</dt><dd>${esc(u.form.location)}</dd><dt>Content</dt><dd>${[u.form.photo && "Photo", u.form.video && "Video"].filter(Boolean).join(" + ")} · Jetty product: ${esc(u.form.product)}</dd>
-      <dt>Shot by</dt><dd>${esc(u.form.photographer)}</dd>${staff ? `<dt>Files</dt><dd>${n} of ${u.files.length} uploaded</dd>` : ""}</dl></article>`;
+      <dt>Shot by</dt><dd>${esc(u.form.photographer)}</dd>${u.form.people ? `<dt>In the shots</dt><dd>${esc(u.form.people)}</dd>` : ""}${staff ? `<dt>Files</dt><dd>${n} of ${u.files.length} uploaded</dd>` : ""}</dl></article>`;
 }
 function uploadPanel(){
   const staff = isStaff(), key = staff ? "staffList" : "list";
@@ -1420,6 +1420,10 @@ function upForm(){
       <label class="chk"><input type="radio" name="up-product" value="Yes"${f.product==="Yes"?" checked":""}><span>Yes</span></label>
       <label class="chk"><input type="radio" name="up-product" value="No"${f.product==="No"?" checked":""}><span>No</span></label></fieldset>
     ${acField("photographer", "Photographer / videographer *", f.photographer, "Who shot it?")}
+    <div class="f ac" data-ac="people"><label for="up-people"><span>Who is in the photos / video</span></label>
+      <input id="up-people" value="${esc(f.people||"")}" placeholder="Names, separated by commas. Leave blank if no one." autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="ac-people">
+      <ul class="acbox" id="ac-people" role="listbox" hidden></ul>
+      <div class="upex"><button type="button" id="people-me">+ Me (${esc(S.me.n)})</button></div></div>
     <label class="f"><span>Shoot notes</span><textarea id="up-notes" placeholder="Anything of note about that day, a funny story, how the weather was, etc.">${esc(f.notes||"")}</textarea></label>
     <div class="drop" id="up-drop"><input type="file" id="up-files" multiple accept="image/*,video/*,.heic,.dng,.cr2,.cr3,.nef,.arw,.mov,.mp4">
       <b>Drop photos or video here</b><span>or tap to choose files</span></div>
@@ -1438,6 +1442,15 @@ function acField(kind, label, val, ph){
     <div class="achint" id="hint-${kind}">${cm && cm.near ? `Did you mean <button type="button" data-acpick="${esc(cm.near)}" data-ackind="${kind}">${esc(cm.near)}</button>? Keep yours if it's new.` : ""}</div></div>`;
 }
 let AC = { kind: null, items: [], idx: -1 };
+const acList = kind => kind === "location" ? UPOPT.locations : kind === "photographer" ? UPOPT.photographers : UPOPT.people;
+// "Who is in the photos" holds several names: suggestions and Enter work on the name being typed after the last comma.
+const lastSeg = v => String(v || "").split(",").pop().trim();
+function setPeople(name){
+  const inp = $("up-people"); if (!inp) return;
+  const parts = inp.value.split(",").map(x => x.trim()); parts[parts.length - 1] = name;
+  const seen = new Set(); inp.value = parts.filter(x => x && !seen.has(x.toLowerCase()) && seen.add(x.toLowerCase())).join(", ") + ", ";
+  readUp(); hideAc(); inp.focus();
+}
 /* Predictive place suggestions: a built-in list (countries, US states, common surf/travel spots) shows instantly,
    then real places from the map lookup (/api/places) fill in. "On file" names always come first. */
 const ISO2 = "AD AE AF AG AI AL AM AO AR AS AT AU AW AZ BA BB BD BE BF BG BH BI BJ BM BN BO BR BS BT BW BY BZ CA CD CF CG CH CI CK CL CM CN CO CR CU CV CW CY CZ DE DJ DK DM DO DZ EC EE EG ER ES ET FI FJ FM FO FR GA GB GD GE GF GH GI GL GM GN GP GQ GR GT GU GW GY HK HN HR HT HU ID IE IL IM IN IQ IR IS IT JM JO JP KE KG KH KI KM KN KR KW KY KZ LA LB LC LI LK LR LS LT LU LV LY MA MC MD ME MG MH MK ML MM MN MO MQ MR MT MU MV MW MX MY MZ NA NC NE NG NI NL NO NP NR NZ OM PA PE PF PG PH PK PL PR PT PW PY QA RE RO RS RU RW SA SB SC SD SE SG SI SK SL SM SN SO SR SS ST SV SX SY SZ TC TD TG TH TJ TL TM TN TO TR TT TV TW TZ UA UG US UY UZ VC VE VG VI VN VU WS YE ZA ZM ZW".split(" ");
@@ -1475,8 +1488,9 @@ function locationSuggest(typed, onFile){
 }
 function showAc(kind, keepIdx){
   const inp = $("up-" + kind), box = $("ac-" + kind); if (!inp || !box) return;
-  const list = kind === "location" ? UPOPT.locations : UPOPT.photographers, typed = inp.value.trim();
-  let items = typed ? suggestions(inp.value, list) : list.slice(0, 6).map(name => ({ name }));
+  const list = acList(kind), typed = kind === "people" ? lastSeg(inp.value) : inp.value.trim();
+  const already = kind === "people" ? new Set(inp.value.split(",").map(x => normTxt(x)).filter(Boolean)) : new Set();
+  let items = (typed ? suggestions(typed, list) : list.slice(0, 6).map(name => ({ name }))).filter(x => !already.has(normTxt(x.name)) || normTxt(x.name) === normTxt(typed));
   if (kind === "location" && typed.length >= 2) {
     items = items.slice(0, 5).concat(locationSuggest(typed, list));
     if (REMOTE.q !== normTxt(typed)) {   // look up real places after a short pause in typing
@@ -1499,12 +1513,17 @@ function showAc(kind, keepIdx){
 }
 function hideAc(){ document.querySelectorAll("#upModal .acbox").forEach(b => b.hidden = true); AC = { kind: null, items: [], idx: -1 }; }
 function pickAc(kind, name){
+  if (kind === "people") return setPeople(name);
   const inp = $("up-" + kind); if (inp) inp.value = name; readUp(); hideAc();
   const h = $("hint-" + kind); if (h) h.innerHTML = "";
 }
 function settleAc(kind){   // on leaving the field: same name with different caps/spaces snaps to the spelling on file; a near miss gets a hint
   const inp = $("up-" + kind); if (!inp) return;
-  const list = kind === "location" ? UPOPT.locations : UPOPT.photographers, cm = closeMatch(inp.value, list), h = $("hint-" + kind);
+  if (kind === "people") {
+    inp.value = inp.value.split(",").map(x => x.replace(/\s+/g, " ").trim()).filter(Boolean).map(x => UPOPT.people.find(n => normTxt(n) === normTxt(x)) || x).join(", ");
+    readUp(); return;
+  }
+  const list = acList(kind), cm = closeMatch(inp.value, list), h = $("hint-" + kind);
   if (cm && cm.exact && cm.exact !== inp.value.trim()) { inp.value = cm.exact; readUp(); }
   if (h) h.innerHTML = cm && cm.near ? `Did you mean <button type="button" data-acpick="${esc(cm.near)}" data-ackind="${kind}">${esc(cm.near)}</button>? Keep yours if it's new.` : "";
 }
@@ -1513,6 +1532,7 @@ function readUp(){
   const f = UP.f, v = id => ($(id) ? $(id).value : "");
   if (!$("upForm")) return;
   f.shootDate = v("up-date"); f.desc = v("up-desc").slice(0, 12); f.location = v("up-location"); f.photographer = v("up-photographer"); f.notes = v("up-notes");
+  f.people = v("up-people");
   f.photo = $("up-photo").checked; f.video = $("up-video").checked;
   f.product = (document.querySelector('input[name="up-product"]:checked') || {}).value || "";
 }
@@ -1726,11 +1746,13 @@ $("profBody").addEventListener("click", e => {
   const h = e.target.closest("[data-season]"); if (!h) return;
   profOpen = profOpen === h.dataset.season ? null : h.dataset.season; renderProfile();
 });
-document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("profile").hidden) closeProfile(); });
+document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("profile").hidden && $("upModal").hidden) closeProfile(); });
 
 $("upModal").addEventListener("click", e => {
   if (UP.busy) return;
-  if (e.target.id === "upModal" || e.target.id === "up-close" || e.target.id === "up-cancel") { readUp(); UP.open = false; renderUpModal(); return; }
+  // Only the × and Cancel buttons close the form (clicking outside it does nothing), so answers aren't lost by accident.
+  if (e.target.id === "up-close" || e.target.id === "up-cancel") { readUp(); UP.open = false; renderUpModal(); return; }
+  if (e.target.id === "people-me") { setPeople(S.me.n); return; }
   const ap = e.target.closest("[data-acpick]"); if (ap) { pickAc(ap.dataset.ackind, ap.dataset.acpick); return; }
   if (!e.target.closest(".ac")) hideAc();
   const ex = e.target.closest("[data-ex]"); if (ex) { readUp(); UP.f.desc = ex.dataset.ex; renderUpModal(); return; }
@@ -1738,10 +1760,11 @@ $("upModal").addEventListener("click", e => {
   if (e.target.id === "up-date") { try { e.target.showPicker(); } catch (x) {} }
 });
 $("upModal").addEventListener("keydown", e => {
-  const acKind = (e.target.id || "").match(/^up-(location|photographer)$/);
+  const acKind = (e.target.id || "").match(/^up-(location|photographer|people)$/);
   if (acKind && e.key === "Enter") {          // Enter fills the highlighted name on file (or the same name typed with different caps); never submits the form
     e.preventDefault();
-    const kind = acKind[1], list = kind === "location" ? UPOPT.locations : UPOPT.photographers, cm = closeMatch(e.target.value, list);
+    const kind = acKind[1], list = acList(kind), cm = closeMatch(kind === "people" ? lastSeg(e.target.value) : e.target.value, list);
+    if (kind === "people" && !lastSeg(e.target.value)) { hideAc(); return; }
     if (cm && cm.exact) pickAc(kind, cm.exact);
     else if (AC.kind === kind && AC.idx >= 0 && AC.items[AC.idx]) pickAc(kind, AC.items[AC.idx].name);
     else { hideAc(); settleAc(kind); }
@@ -1751,11 +1774,11 @@ $("upModal").addEventListener("keydown", e => {
     e.preventDefault(); AC.idx = (AC.idx + (e.key === "ArrowDown" ? 1 : -1) + AC.items.length) % AC.items.length;
     document.querySelectorAll(`#ac-${AC.kind} li[role="option"]`).forEach((li, i) => { li.classList.toggle("on", i === AC.idx); const k = li.querySelector("kbd"); if (k) k.remove(); if (i === AC.idx) li.insertAdjacentHTML("beforeend", "<kbd>Enter</kbd>"); }); e.target.setAttribute("aria-activedescendant", `aco-${AC.kind}-${AC.idx}`); return;
   }
-  if (e.target.id === "up-date" && e.key !== "Tab" && e.key !== "Escape") e.preventDefault(); if (e.key === "Escape" && !UP.busy) { readUp(); UP.open = false; renderUpModal(); } });
-$("upModal").addEventListener("focusin", e => { const k = (e.target.id || "").match(/^up-(location|photographer)$/); if (k) showAc(k[1]); });
-$("upModal").addEventListener("focusout", e => { const k = (e.target.id || "").match(/^up-(location|photographer)$/);
+  if (e.target.id === "up-date" && e.key !== "Tab" && e.key !== "Escape") e.preventDefault(); if (e.key === "Escape" && AC.kind) hideAc(); });
+$("upModal").addEventListener("focusin", e => { const k = (e.target.id || "").match(/^up-(location|photographer|people)$/); if (k) showAc(k[1]); });
+$("upModal").addEventListener("focusout", e => { const k = (e.target.id || "").match(/^up-(location|photographer|people)$/);
   if (k) setTimeout(() => { if (!document.activeElement || !document.activeElement.closest || document.activeElement.id !== e.target.id) { settleAc(k[1]); hideAc(); } }, 150); });
-$("upModal").addEventListener("input", e => { const k = (e.target.id || "").match(/^up-(location|photographer)$/); if (k) { showAc(k[1]); const h = $("hint-" + k[1]); if (h) h.innerHTML = ""; }
+$("upModal").addEventListener("input", e => { const k = (e.target.id || "").match(/^up-(location|photographer|people)$/); if (k) { showAc(k[1]); const h = $("hint-" + k[1]); if (h) h.innerHTML = ""; }
   if (e.target.id === "up-desc") { const c = $("up-count"); if (c) c.textContent = e.target.value.length + "/12"; }
   readUp(); const fo = document.querySelector(".upfolder b"); if (fo) fo.textContent = `${UP.f.shootDate || "YYYY-MM-DD"} - ${UP.f.desc || "Description"}`; });
 $("upModal").addEventListener("change", e => { if (e.target.id === "up-files") { readUp(); addFiles(e.target.files); } else readUp(); });

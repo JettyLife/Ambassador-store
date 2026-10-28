@@ -702,6 +702,7 @@ function uploadInfo(me, f, files, status) {
     `Video: ${f.video ? "yes" : "no"}`,
     `Is there Jetty product in photos? ${f.product === "Yes" ? "yes" : "no"}`,
     `Photographer: ${f.photographer}`,
+    `Who is in the photos: ${f.people || ""}`,
     `Shoot Notes: ${String(f.notes || "").replace(/\r?\n/g, " ").trim()}`,
     "",
     "---",
@@ -715,10 +716,10 @@ function uploadInfo(me, f, files, status) {
 
 /* Suggestions for Location / Photographer: the Jetty media library's published list + anything uploaded here. */
 const OPTIONS_URL = process.env.MEDIA_OPTIONS_URL || "https://jetty-media-library.netlify.app/ambassador-options.json";
-let optCache = { at: 0, data: { locations: [], photographers: [] } };
+let optCache = { at: 0, data: { locations: [], photographers: [], people: [] } };
 async function uploadOptions() {
   if (Date.now() - optCache.at < 10 * 60000) return optCache.data;
-  const tally = { locations: new Map(), photographers: new Map() };
+  const tally = { locations: new Map(), photographers: new Map(), people: new Map() };
   const add = (kind, name, uses = 1, last = "") => {
     const n = String(name || "").replace(/\s+/g, " ").trim(); if (!n) return;
     const k = n.toLowerCase(), cur = tally[kind].get(k);
@@ -726,11 +727,15 @@ async function uploadOptions() {
   };
   try {
     const r = await fetch(OPTIONS_URL, { headers: { "User-Agent": UA } });
-    if (r.ok) { const j = await r.json(); for (const k of ["locations", "photographers"]) for (const x of (j[k] || [])) add(k, x.name, Number(x.uses) || 1, x.last || ""); }
+    if (r.ok) { const j = await r.json(); for (const k of ["locations", "photographers", "people"]) for (const x of (j[k] || [])) add(k, x.name, Number(x.uses) || 1, x.last || "");
+      for (const n of (j.ambassadors || [])) add("people", typeof n === "string" ? n : n.name, 1, ""); }
   } catch (e) { console.error(JSON.stringify({ event: "media_options_unreachable", error: e.message })); }
-  for (const u of readJson(UPLOADS_FILE(), [])) { if (u.test) continue; add("locations", u.form.location, 1, u.form.shootDate || ""); add("photographers", u.form.photographer, 1, u.form.shootDate || ""); }
+  for (const u of readJson(UPLOADS_FILE(), [])) { if (u.test) continue; add("locations", u.form.location, 1, u.form.shootDate || ""); add("photographers", u.form.photographer, 1, u.form.shootDate || "");
+    add("people", u.who.n, 1, u.form.shootDate || "");
+    for (const n of String(u.form.people || "").split(/\s*,\s*/)) add("people", n, 1, u.form.shootDate || ""); }
+  for (const [k, v] of tally.photographers) if (!tally.people.has(k)) tally.people.set(k, { ...v, uses: 0 });   // photographers are often in shots too
   const sorted = m => [...m.values()].sort((a, b) => b.uses - a.uses || String(b.last).localeCompare(String(a.last))).map(x => x.name);
-  optCache = { at: Date.now(), data: { locations: sorted(tally.locations), photographers: sorted(tally.photographers) } };
+  optCache = { at: Date.now(), data: { locations: sorted(tally.locations), photographers: sorted(tally.photographers), people: sorted(tally.people) } };
   return optCache.data;
 }
 async function startUpload(me, form, files, origin) {
@@ -738,6 +743,7 @@ async function startUpload(me, form, files, origin) {
     uploadDate: todayET(), shootDate: isDate(form.shootDate) ? form.shootDate : "", desc: clip(form.desc, 12), location: clip(form.location, 500),
     photo: !!form.photo, video: !!form.video, product: form.product === "Yes" ? "Yes" : form.product === "No" ? "No" : "",
     photographer: clip(form.photographer, 120), notes: clip(form.notes, 5000),
+    people: String(form.people || "").split(",").map(x => clip(x, 80)).filter(Boolean).slice(0, 30).join(", "),
   };
   if (!f.shootDate) throw Object.assign(new Error("Pick the Date of Shoot from the calendar."), { status: 400 });
   if (f.shootDate > f.uploadDate) throw Object.assign(new Error("The Date of Shoot can't be after today."), { status: 400 });
@@ -786,7 +792,7 @@ async function finishUpload(me, id, results) {
       accessory: { type: "button", text: { type: "plain_text", text: "Open folder" }, url: rec.folder.url } },
     { type: "actions", elements: [{ type: "button", text: { type: "plain_text", text: "View in Jetty Ambassador" }, url: `${SITE()}/#${rec.id}` }] },
     fieldsBlock([["Files", `${photos} photo${photos === 1 ? "" : "s"}, ${videos} video${videos === 1 ? "" : "s"} (${gb >= 1 ? gb.toFixed(1) + " GB" : Math.round(gb * 1024) + " MB"})`],
-      ["Shoot date", sDate(rec.form.shootDate)], ["Location", rec.form.location], ["Shot by", rec.form.photographer], ["Jetty product", rec.form.product]]),
+      ["Shoot date", sDate(rec.form.shootDate)], ["Location", rec.form.location], ["Shot by", rec.form.photographer], ["In the shots", rec.form.people], ["Jetty product", rec.form.product]]),
     ...(rec.form.notes ? [{ type: "section", text: { type: "mrkdwn", text: `*Shoot notes*\n${slackEsc(rec.form.notes)}` } }] : []),
     ...(missing ? [ctx(`:warning: ${missing} file(s) didn't finish uploading.`)] : []),
   ], rec.test);
@@ -1019,7 +1025,7 @@ http.createServer(async (req, res) => {
         const origin = req.headers.origin || `https://${req.headers.host}`;
         if (action === "start") return send(res, 200, { ok: true, ...(await startUpload(me, body.form || {}, body.files || [], origin)) });
         if (action === "finish") return send(res, 200, { ok: true, ...(await finishUpload(me, String(body.uploadId || ""), body.results)) });
-        if (action === "options") return send(res, 200, { ok: true, ...(await uploadOptions()), today: todayET() });
+        if (action === "options") return send(res, 200, { ok: true, ...(await uploadOptions()), self: me.n, today: todayET() });
         if (action === "mine") return send(res, 200, { ok: true, enabled: googleReady(), uploads: readJson(UPLOADS_FILE(), []).filter(r => r.who.id === me.id).reverse() });
         if (action === "all") { if (!me.admin) return send(res, 403, { ok: false }); return send(res, 200, { ok: true, enabled: googleReady(),
           google: { mode: googleMode(), account: googleMode() === "account" ? oauthSaved().email : SA ? SA.client_email : "", canConnect: !!(GO.id && GO.secret) },
