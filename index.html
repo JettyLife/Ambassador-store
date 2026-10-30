@@ -1226,9 +1226,9 @@ function openProfile(){
   requestAnimationFrame(() => { const h = document.querySelector(".pband")?.offsetHeight || 150; $("profile").style.setProperty("--pband-h", h + "px"); });
 }
 function closeProfile(){ $("profile").hidden = true; document.body.classList.remove("noscroll"); }
-async function loadProfile(){
+async function loadProfile(fresh){
   try {
-    const r = await fetch("/api/history", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ code: S.code }) });
+    const r = await fetch("/api/history", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ code: S.code, fresh: !!fresh }) });
     const j = await r.json();
     PROF = r.ok && j.ok ? j : { error: true };
   } catch (e) { PROF = { error: true }; }
@@ -1395,13 +1395,14 @@ function ambPanel(){
   return `<div class="ambh"><div class="pwho"><span class="av big dark">${esc(initials(r.n))}</span><div><small>Ambassador</small><h2>${esc(r.n)}</h2>
       <p class="hint">${esc(r.e)} · ${esc(r.amc || "No AM customer")} · PO <span class="code">${esc(r.po)}</span></p></div></div>
       <div class="alinks"><button type="button" class="alink" data-copylink="${esc(r.code)}" title="Copy ${esc(r.n)}'s personal store link">Copy their link</button>
-        <a class="alink" href="/#${esc(r.code)}-V" target="_blank" rel="noopener">View their store ↗</a></div>
+        <a class="alink" href="/#${esc(r.code)}-V" target="_blank" rel="noopener">View their store ↗</a>
+        <button type="button" class="alink" data-ambrefresh="${esc(r.id)}">Refresh orders</button></div>
       <div class="linkline"><span class="code" id="lk-${esc(r.id)}">${esc(location.origin + "/#" + r.code)}</span></div></div>
     ${!d ? `<p class="hint pload">Loading orders…</p>` : d.error ? `<p class="hint pload">Couldn't load orders. Try again.</p>` : seasonsHTML(d.seasons || [], "a:" + r.id)}`;
 }
-async function loadAmb(id){
+async function loadAmb(id, fresh){
   try {
-    const r = await fetch("/api/history", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ code: S.code, as: id }) });
+    const r = await fetch("/api/history", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ code: S.code, as: id, fresh: !!fresh }) });
     const j = await r.json(); ADM.data[id] = r.ok && j.ok ? j : { error: true };
   } catch (e) { ADM.data[id] = { error: true }; }
   if (ADM.open === id) renderProfile();
@@ -1410,7 +1411,7 @@ function myPanel(){
   const orders = !PROF ? `<p class="hint pload">Loading your orders…</p>`
     : PROF.error ? `<p class="hint pload">We couldn't load your order history right now. Try again in a minute.</p>`
     : seasonsHTML(PROF.seasons || []);
-  return `<h3 class="psec">Past Orders</h3>` + orders;
+  return `<div class="rhead"><h3 class="psec">Past Orders</h3><button type="button" class="alink" id="histRefresh" title="Get the latest status and tracking from our system">Refresh</button></div>` + orders;
 }
 /* ===== Upload Content (to Jetty's Google Drive) ===== */
 let UP = { list: null, enabled: true, staffList: null, open: false, f: { photo: false, video: false, product: "" }, files: [], err: "", busy: false, prog: {}, result: null };
@@ -1827,6 +1828,8 @@ $("profBody").addEventListener("click", e => {
     if (!UPOPT.loaded) loadUpOptions().then(() => { if (UP.open && !UP.busy) { readUp(); renderUpModal(); } }); return; }
   if (e.target.id === "rq-open") { REQ.form = true; REQ.done = false; REQ.err = ""; renderProfile(); setTimeout(() => $("rq-location")?.focus(), 30); return; }
   if (e.target.id === "rq-cancel") { readDraft(); REQ.form = false; REQ.err = ""; renderProfile(); return; }
+  if (e.target.id === "histRefresh") { PROF = null; renderProfile(); loadProfile(true); return; }
+  const ar = e.target.closest("[data-ambrefresh]"); if (ar) { delete ADM.data[ar.dataset.ambrefresh]; renderProfile(); loadAmb(ar.dataset.ambrefresh, true); return; }
   const sp = e.target.closest("[data-seas]"); if (sp) { SEAS.pick = sp.dataset.seas; renderProfile(); return; }
   const ss = e.target.closest("[data-ssort]"); if (ss) { SEAS.sort = ss.dataset.ssort; renderProfile(); return; }
   const cl = e.target.closest("[data-copylink]");

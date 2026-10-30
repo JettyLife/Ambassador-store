@@ -332,9 +332,9 @@ function findTracking(obj, hint, out = []) {
   return out;
 }
 const shipCache = new Map(); // order_id -> {at, data}
-async function shipmentsFor(orderIds) {
-  // Re-check every 2 minutes until a tracking number shows up, then every 30 minutes.
-  const need = orderIds.filter(id => { const c = shipCache.get(id); return !c || Date.now() - c.at > (c.data.tracking.length ? 30 : 2) * 60000; });
+async function shipmentsFor(orderIds, fresh = false) {
+  // Re-check every 2 minutes until a tracking number shows up, then every 5 minutes (so an edited number updates quickly).
+  const need = orderIds.filter(id => { const c = shipCache.get(id); return fresh || !c || Date.now() - c.at > (c.data.tracking.length ? 5 : 2) * 60000; });
   for (let i = 0; i < need.length; i += 25) {
     const chunk = need.slice(i, i + 25);
     let rows = [];
@@ -410,9 +410,9 @@ async function allOrders(cid) {
   }
   return out.filter(o => String(o.customer_id) === cid);
 }
-async function history(me) {
+async function history(me, fresh = false) {
   const hit = histCache.get(ambKey(me));
-  if (hit && Date.now() - hit.at < 60000) return hit.data;
+  if (!fresh && hit && Date.now() - hit.at < 60000) return hit.data;
   const cur = seasonOfPo(me.po);
   const rows = await allOrders(await customerId(me.amc));
   const seasons = new Map(), pickups = readPickups();
@@ -441,7 +441,7 @@ async function history(me) {
   const allOrds = [...seasons.values()].flatMap(s => s.orders);
   const shippedIds = allOrds.filter(o => (o.ship.state !== "processing" || o.tracking.length) && !o.ship.pickup).map(o => o.amOrderId);
   if (shippedIds.length) {
-    const info = await shipmentsFor(shippedIds);
+    const info = await shipmentsFor(shippedIds, fresh);
     for (const o of allOrds) if (info[o.amOrderId]) {
       const seen = new Set(o.tracking.map(t => t.number));
       o.tracking = o.tracking.concat(info[o.amOrderId].tracking.filter(t => !seen.has(t.number) && seen.add(t.number)));
@@ -1060,7 +1060,7 @@ http.createServer(async (req, res) => {
           me = { n: who.n, a: who.a, amc: who.amc, po: who.po, pa: who.pa || {} };
         }
         if (!me.amc) return send(res, 200, { ok: true, name: me.n, seasons: [] });
-        return send(res, 200, { ok: true, ...(await history(me)) });
+        return send(res, 200, { ok: true, ...(await history(me, !!body.fresh)) });
       } catch (e) {
         console.error(JSON.stringify({ event: "history_error", error: e.message }));
         return send(res, e.message === "bad_code" || e.code === "ENOENT" ? 403 : 502, { ok: false });
