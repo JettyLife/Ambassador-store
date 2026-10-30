@@ -334,14 +334,14 @@ function findTracking(obj, hint, out = []) {
 const shipCache = new Map(); // order_id -> {at, data}
 async function shipmentsFor(orderIds, fresh = false) {
   // Re-check every 2 minutes until a tracking number shows up, then every 5 minutes (so an edited number updates quickly).
-  const need = orderIds.filter(id => { const c = shipCache.get(id); return fresh || !c || Date.now() - c.at > (c.data.tracking.length ? 5 : 2) * 60000; });
+  const need = orderIds.filter(id => { const c = shipCache.get(id); return fresh || !c || Date.now() - c.at > (c.data.tracking.length || c.data.invoiced ? 5 : 2) * 60000; });
   for (let i = 0; i < need.length; i += 25) {
     const chunk = need.slice(i, i + 25);
     let rows = [];
     try { rows = await amGet("shipments/", chunk.map(id => ({ field: "order_id", operator: "=", value: id, include_type: "OR" })), { pagination: { page_size: 1000 } }); }
     catch (e) { console.error(JSON.stringify({ event: "shipments_lookup_failed", error: e.message })); }
     // Invoices can carry the tracking number too (AM creates one when an order ships).
-    try { rows = rows.concat(await amGet("invoices/", chunk.map(id => ({ field: "order_id", operator: "=", value: id, include_type: "OR" })), { pagination: { page_size: 1000 } })); }
+    try { rows = rows.concat((await amGet("invoices/", chunk.map(id => ({ field: "order_id", operator: "=", value: id, include_type: "OR" })), { pagination: { page_size: 1000 } })).map(r => ({ ...r, _invoice: true }))); }
     catch (e) { console.error(JSON.stringify({ event: "invoices_lookup_failed", error: e.message })); }
     const by = new Map(chunk.map(id => [id, []]));
     for (const r of rows) {
@@ -350,7 +350,8 @@ async function shipmentsFor(orderIds, fresh = false) {
     }
     for (const [id, list] of by) {
       const seen = new Set(), tracking = findTracking(list).filter(t => !seen.has(t.number) && seen.add(t.number));
-      shipCache.set(id, { at: Date.now(), data: { tracking, shipDate: (list.find(r => r.date || r.ship_date) || {}).date || (list[0] || {}).ship_date || "" } });
+      const inv = list.find(r => r._invoice);
+      shipCache.set(id, { at: Date.now(), data: { tracking, invoiced: !!inv, invoiceDate: inv ? (inv.date || "") : "", shipDate: (list.find(r => r.date || r.ship_date) || {}).date || (list[0] || {}).ship_date || "" } });
     }
   }
   return Object.fromEntries(orderIds.map(id => [id, (shipCache.get(id) || {}).data || { tracking: [] }]));
@@ -439,10 +440,14 @@ async function history(me, fresh = false) {
     for (const s of seasons.values()) for (const o of s.orders) for (const it of o.items) if (imgs[it.style]) it.img = imgs[it.style];
   }
   const allOrds = [...seasons.values()].flatMap(s => s.orders);
-  const shippedIds = allOrds.filter(o => (o.ship.state !== "processing" || o.tracking.length) && !o.ship.pickup).map(o => o.amOrderId);
+  // Delivery orders: look up shipments/invoices for tracking. Pickup orders not yet picked up: look for the invoice,
+  // since Wholesale invoicing the order is the signal that it's ready for pickup.
+  const shippedIds = allOrds.filter(o => o.ship.pickup ? !o.ship.pickedUpAt && o.ship.state !== "ready" : (o.ship.state !== "processing" || o.tracking.length)).map(o => o.amOrderId);
   if (shippedIds.length) {
     const info = await shipmentsFor(shippedIds, fresh);
-    for (const o of allOrds) if (info[o.amOrderId]) {
+    for (const o of allOrds) if (o.ship.pickup && info[o.amOrderId] && info[o.amOrderId].invoiced && !o.ship.pickedUpAt)
+      o.ship = { state: "ready", label: "Ready for pickup", pickup: true, canConfirm: true, readySince: info[o.amOrderId].invoiceDate };
+    for (const o of allOrds) if (!o.ship.pickup && info[o.amOrderId]) {
       const seen = new Set(o.tracking.map(t => t.number));
       o.tracking = o.tracking.concat(info[o.amOrderId].tracking.filter(t => !seen.has(t.number) && seen.add(t.number)));
       o.shipDate = info[o.amOrderId].shipDate;
@@ -471,9 +476,9 @@ async function postSlack(text, blocks) {
   return true;
 }
 // Who gets @-mentioned per alert. Railway variable SLACK_MENTIONS overrides, e.g.
-// "requests:U0C9M2Q15GC;uploads:U0C9M2Q15GC;pending:U0C9M2Q15GC,UM3REF944;orders:" (Slack member IDs; Jon = U0C9M2Q15GC, Arlynn = U0BPU0W4BCK, Tyler = UM3REF944)
+// "requests:U0C9M2Q15GC;uploads:U0C9M2Q15GC;pending:U0C9M2Q15GC,UM3REF944;orders:" (Slack member IDs; Jon = U0C9M2Q15GC, Arlynn = U0BPU0W4BCK, Jerm = U4UAC501F, Tyler = UM3REF944)
 const SLACK_MENTIONS = (() => {
-  const m = { requests: ["U0C9M2Q15GC", "U0BPU0W4BCK"], uploads: ["U0C9M2Q15GC", "U0BPU0W4BCK"], pending: ["U0C9M2Q15GC"], orders: [] };
+  const m = { requests: ["U0C9M2Q15GC", "U0BPU0W4BCK"], uploads: ["U0C9M2Q15GC", "U0BPU0W4BCK"], pending: ["U0C9M2Q15GC", "U0BPU0W4BCK", "U4UAC501F"], orders: [] };
   for (const part of String(process.env.SLACK_MENTIONS || "").split(";")) {
     const [k, v] = part.split(":"); if (!k || !(k.trim().toLowerCase() in m) || v === undefined) continue;
     m[k.trim().toLowerCase()] = v.split(",").map(x => x.trim()).filter(x => /^[UW][A-Z0-9]{6,}$/.test(x));
