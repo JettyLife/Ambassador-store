@@ -161,7 +161,10 @@ async function skuIds(upcs) {
 // An ambassador's season orders = their AM customer + their season PO (e.g. "Werner AMB, SUM27").
 // A new season gets a new PO code, so the total starts at $0 automatically.
 const recent = new Map();     // po -> [{amOrderId, retail, units, at}] created since this server started (covers AM lag)
-const spentCache = new Map(); // po -> {at, data}
+const spentCache = new Map(); // customer|po -> {at, data}
+// Two ambassadors can share a PO (e.g. "Woodin AMB, SUM27" for Bree and Kurtis), so everything is keyed by AM customer AND PO.
+const ambKey = me => `${String(me.amc || "").trim().toLowerCase()}|${String(me.po || "").trim().toLowerCase()}`;
+const poOwner = po => String(po || "").split(/\s+AMB\b/i)[0].trim().toLowerCase();
 function orderRetail(o) {
   if (String(o.credit_status || "").toLowerCase() === "cancelled") return { retail: 0, units: 0 };
   const items = Array.isArray(o.order_items) ? o.order_items : [];
@@ -171,7 +174,7 @@ function orderRetail(o) {
   return { retail, units };
 }
 async function seasonSpend(me, fresh = false) {
-  const hit = spentCache.get(me.po);
+  const hit = spentCache.get(ambKey(me));
   if (!fresh && hit && Date.now() - hit.at < 60000) return hit.data;
   const cid = await customerId(me.amc);
   const rows = await amGet("orders/", [
@@ -181,9 +184,9 @@ async function seasonSpend(me, fresh = false) {
   const orders = rows.filter(o => String(o.customer_id) === cid && String(o.customer_po || "").trim() === me.po)
     .map(o => ({ amOrderId: String(o.order_id), date: o.date || "", ...orderRetail(o) }))
     .filter(o => o.units > 0);
-  for (const r of recent.get(me.po) || []) if (!orders.some(o => o.amOrderId === String(r.amOrderId))) orders.push(r);
+  for (const r of recent.get(ambKey(me)) || []) if (!orders.some(o => o.amOrderId === String(r.amOrderId))) orders.push(r);
   const data = { spent: Math.round(orders.reduce((t, o) => t + o.retail, 0) * 100) / 100, orders };
-  spentCache.set(me.po, { at: Date.now(), data });
+  spentCache.set(ambKey(me), { at: Date.now(), data });
   return data;
 }
 
@@ -408,7 +411,7 @@ async function allOrders(cid) {
   return out.filter(o => String(o.customer_id) === cid);
 }
 async function history(me) {
-  const hit = histCache.get(me.po);
+  const hit = histCache.get(ambKey(me));
   if (hit && Date.now() - hit.at < 60000) return hit.data;
   const cur = seasonOfPo(me.po);
   const rows = await allOrders(await customerId(me.amc));
@@ -416,6 +419,7 @@ async function history(me) {
   for (const o of rows) {
     const s = seasonOfPo(o.customer_po); if (!s) continue;
     if (s.test !== !!me.t) continue;                       // test link sees test orders only, ambassadors never see tests
+    if (poOwner(o.customer_po) !== poOwner(me.po)) continue; // same customer AND this ambassador's PO name
     const cancelled = String(o.credit_status || "").toLowerCase() === "cancelled";
     const items = (o.order_items || []).map(it => {
       const qty = cancelled ? 0 : Number(it.qty || 0) - Number(it.qty_cxl || 0);
@@ -449,7 +453,7 @@ async function history(me) {
     spent: Math.round(s.orders.reduce((t, o) => t + o.retail, 0) * 100) / 100, units: s.orders.reduce((t, o) => t + o.units, 0),
     orders: s.orders.sort((a, b) => Number(b.amOrderId) - Number(a.amOrderId)), sort: s.sort })).sort((a, b) => b.sort - a.sort);
   const data = { name: me.n, seasons: list };
-  histCache.set(me.po, { at: Date.now(), data });
+  histCache.set(ambKey(me), { at: Date.now(), data });
   return data;
 }
 
@@ -979,9 +983,9 @@ async function handleOrder(input) {
     catch (e) { console.error(JSON.stringify({ event: "credit_status_update_failed", amOrderId, want: header.credit_status, error: e.message })); }
   }
   const units = lines.reduce((t, l) => t + l.qty, 0);
-  if (!recent.has(me.po)) recent.set(me.po, []);
-  recent.get(me.po).push({ amOrderId: String(amOrderId || orderId), date: new Date().toLocaleDateString("en-US"), retail, units });
-  spentCache.delete(me.po); histCache.delete(me.po); seasonsCache = null;
+  if (!recent.has(ambKey(me))) recent.set(ambKey(me), []);
+  recent.get(ambKey(me)).push({ amOrderId: String(amOrderId || orderId), date: new Date().toLocaleDateString("en-US"), retail, units });
+  spentCache.delete(ambKey(me)); histCache.delete(ambKey(me)); seasonsCache = null;
   const out = { ok: true, orderId, amOrderId, spent: Math.round(total * 100) / 100, pending: overAllowance };
   if (orderId) seen.set(orderId, out);
   console.log(JSON.stringify({ event: "order_created", orderId, amOrderId, creditStatus: header.credit_status }));
@@ -1197,12 +1201,12 @@ http.createServer(async (req, res) => {
           const w = (me.roster || []).find(r => r.id === String(body.as)); if (!w) return send(res, 404, { ok: false });
           owner = { n: w.n, a: w.a, amc: w.amc, po: w.po, pa: w.pa || {} };
         }
-        histCache.delete(owner.po);
+        histCache.delete(ambKey(owner));
         const h = await history(owner);
         const o = h.seasons.flatMap(s => s.orders).find(x => x.amOrderId === id);
         if (!o || !o.ship.canConfirm) return send(res, 409, { ok: false, error: "This order isn't ready for pickup yet." });
         const m = readPickups(); m[id] = { at: new Date().toISOString(), by: body.as ? "Jetty staff" : me.n }; writePickups(m);
-        histCache.delete(owner.po);
+        histCache.delete(ambKey(owner));
         console.log(JSON.stringify({ event: "picked_up", order: id, by: m[id].by }));
         return send(res, 200, { ok: true });
       } catch (e) { console.error(JSON.stringify({ event: "pickup_error", error: e.message })); return send(res, 500, { ok: false, error: "Couldn't save that. Try again." }); }
