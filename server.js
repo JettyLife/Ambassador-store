@@ -337,9 +337,12 @@ async function shipmentsFor(orderIds) {
     let rows = [];
     try { rows = await amGet("shipments/", chunk.map(id => ({ field: "order_id", operator: "=", value: id, include_type: "OR" })), { pagination: { page_size: 1000 } }); }
     catch (e) { console.error(JSON.stringify({ event: "shipments_lookup_failed", error: e.message })); }
+    // Invoices can carry the tracking number too (AM creates one when an order ships).
+    try { rows = rows.concat(await amGet("invoices/", chunk.map(id => ({ field: "order_id", operator: "=", value: id, include_type: "OR" })), { pagination: { page_size: 1000 } })); }
+    catch (e) { console.error(JSON.stringify({ event: "invoices_lookup_failed", error: e.message })); }
     const by = new Map(chunk.map(id => [id, []]));
     for (const r of rows) {
-      const ids = new Set([r.order_id, ...(Array.isArray(r.shipment_items) ? r.shipment_items.map(x => x.order_id) : [])].filter(Boolean).map(String));
+      const ids = new Set([r.order_id, ...(Array.isArray(r.shipment_items) ? r.shipment_items.map(x => x.order_id) : []), ...(Array.isArray(r.invoice_items) ? r.invoice_items.map(x => x.order_id) : [])].filter(Boolean).map(String));
       for (const id of ids) if (by.has(id)) by.get(id).push(r);
     }
     for (const [id, list] of by) {
@@ -349,6 +352,30 @@ async function shipmentsFor(orderIds) {
   }
   return Object.fromEntries(orderIds.map(id => [id, (shipCache.get(id) || {}).data || { tracking: [] }]));
 }
+/* Live tracking (optional): Railway variable EASYPOST_API_KEY. Each tracking number becomes an EasyPost tracker
+   (EasyPost dedupes the same number for 3 months), refreshed at most every 30 minutes. */
+const EASYPOST = process.env.EASYPOST_API_KEY || "";
+const liveCache = new Map(); // number -> {at, data}
+const EP_CARRIER = { UPS: "UPS", FedEx: "FedEx", USPS: "USPS", DHL: "DHLExpress" };
+async function liveTracking(t) {
+  if (!EASYPOST || !t || !t.number) return null;
+  const hit = liveCache.get(t.number);
+  if (hit && Date.now() - hit.at < (hit.data && hit.data.status === "delivered" ? 864e5 : 30 * 60000)) return hit.data;
+  try {
+    const r = await fetch("https://api.easypost.com/v2/trackers", { method: "POST",
+      headers: { Authorization: "Basic " + Buffer.from(EASYPOST + ":").toString("base64"), "Content-Type": "application/json" },
+      body: JSON.stringify({ tracker: { tracking_code: t.number, ...(EP_CARRIER[t.carrier] ? { carrier: EP_CARRIER[t.carrier] } : {}) } }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(`EasyPost ${r.status}: ${JSON.stringify(j.error || j).slice(0, 200)}`);
+    const loc = l => l ? [l.city, l.state].filter(Boolean).map(x => String(x).replace(/\b\w+/g, w => w[0] + w.slice(1).toLowerCase())).join(", ") : "";
+    const data = { status: j.status || "unknown", detail: j.status_detail || "", carrier: j.carrier || t.carrier || "", est: j.est_delivery_date || null,
+      signedBy: j.signed_by || "", publicUrl: j.public_url || "", updated: j.updated_at || "",
+      events: (j.tracking_details || []).slice().reverse().slice(0, 12).map(d => ({ at: d.datetime_local || d.datetime, msg: d.message || d.status, where: loc(d.tracking_location) })) };
+    liveCache.set(t.number, { at: Date.now(), data });
+    return data;
+  } catch (e) { console.error(JSON.stringify({ event: "live_tracking_failed", number: t.number, error: e.message })); return hit ? hit.data : null; }
+}
+
 // Pickup orders: once AM marks them shipped they're "Ready for pickup"; the ambassador (or staff) confirms the pickup on the site.
 const PICK_FILE = () => path.join(DATA_DIR, "pickups.json");
 function readPickups() { try { return JSON.parse(fs.readFileSync(PICK_FILE(), "utf8")); } catch (e) { return {}; } }
@@ -396,8 +423,9 @@ async function history(me) {
     }).filter(it => it.qty > 0);
     if (!items.length) continue;
     if (!seasons.has(s.code)) seasons.set(s.code, { ...s, allowance: s.code === cur?.code ? Number(me.a) : (me.pa || {})[s.code] ?? null, orders: [] });
+    const orderTrk = findTracking(Object.fromEntries(Object.entries(o).filter(([k]) => k !== "order_items")), o.ship_via || "");
     seasons.get(s.code).orders.push({ amOrderId: String(o.order_id), date: o.date || "", items, ship: shipStatus(o, pickups),
-      method: String(o.shipping_info || ""),
+      method: String(o.shipping_info || ""), shipVia: String(o.ship_via || ""), tracking: orderTrk,
       units: items.reduce((t, i) => t + i.qty, 0), retail: items.reduce((t, i) => t + i.qty * i.retail, 0) });
   }
   if (cur && !seasons.has(cur.code)) seasons.set(cur.code, { ...cur, allowance: Number(me.a), orders: [] });
@@ -406,11 +434,17 @@ async function history(me) {
     const imgs = await productImages(pastStyles);
     for (const s of seasons.values()) for (const o of s.orders) for (const it of o.items) if (imgs[it.style]) it.img = imgs[it.style];
   }
-  const shippedIds = [...seasons.values()].flatMap(s => s.orders).filter(o => o.ship.state !== "processing" && !o.ship.pickup).map(o => o.amOrderId);
+  const allOrds = [...seasons.values()].flatMap(s => s.orders);
+  const shippedIds = allOrds.filter(o => (o.ship.state !== "processing" || o.tracking.length) && !o.ship.pickup).map(o => o.amOrderId);
   if (shippedIds.length) {
     const info = await shipmentsFor(shippedIds);
-    for (const s of seasons.values()) for (const o of s.orders) if (info[o.amOrderId]) { o.tracking = info[o.amOrderId].tracking; o.shipDate = info[o.amOrderId].shipDate; }
+    for (const o of allOrds) if (info[o.amOrderId]) {
+      const seen = new Set(o.tracking.map(t => t.number));
+      o.tracking = o.tracking.concat(info[o.amOrderId].tracking.filter(t => !seen.has(t.number) && seen.add(t.number)));
+      o.shipDate = info[o.amOrderId].shipDate;
+    }
   }
+  if (EASYPOST) await Promise.all(allOrds.flatMap(o => o.tracking.slice(0, 5).map(async t => { t.live = await liveTracking(t); })));
   const list = [...seasons.values()].map(s => ({ code: s.code, label: s.label, current: s.code === cur?.code, allowance: s.allowance,
     spent: Math.round(s.orders.reduce((t, o) => t + o.retail, 0) * 100) / 100, units: s.orders.reduce((t, o) => t + o.units, 0),
     orders: s.orders.sort((a, b) => Number(b.amOrderId) - Number(a.amOrderId)), sort: s.sort })).sort((a, b) => b.sort - a.sort);
@@ -456,6 +490,54 @@ function notify(kind, text, blocks, test) {
 const sDate = d => d ? new Date(String(d).slice(0, 10) + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" }) : "";
 const fieldsBlock = rows => ({ type: "section", fields: rows.filter(x => x[1]).slice(0, 10).map(([k, v]) => ({ type: "mrkdwn", text: `*${slackEsc(k)}*\n${slackEsc(v)}` })) });
 const ctx = t => ({ type: "context", elements: [{ type: "mrkdwn", text: t }] });
+
+/* ---------- email templates (Jetty Admin → Email Templates), sent one-by-one from Jon's Gmail ---------- */
+const TPL_FILE = () => path.join(DATA_DIR, "email-templates.json");
+const DEFAULT_TEMPLATES = [
+  { id: "welcome", name: "Welcome / your ambassador link", subject: "Your Jetty Ambassador page",
+    body: "Hi {first_name},\n\nWelcome to Jetty Ambassador, your own page for everything ambassador-related with Jetty.\n\nFrom your page you can:\n- Upload the photos and video you shoot for us\n- Request gear for an upcoming shoot\n- See your past orders and track shipments\n\nYour personal link (just for you, please don't share it):\n{link}\n\nSite password: {password}\n\nAny questions, just reply to this email.\n\nThanks,\nJon" },
+  { id: "order-time", name: "It's Time to Order Again", subject: "It's time to order your {season} gear",
+    body: "Hi {first_name},\n\nThe {season} ambassador store is open! You have {allowance} to put toward this season's gear.\n\nOrder here with your personal link (it's only for you):\n{link}\n\nSite password: {password}\n\nPlease place your order by {deadline}.\n\nThanks,\nJon" },
+  { id: "content", name: "Content reminder", subject: "Got any new Jetty shots?",
+    body: "Hi {first_name},\n\nJust a reminder that you can upload photos and video from your shoots any time from your ambassador page, and request gear for upcoming shoots there too.\n\n{link}\n\nThanks,\nJon" },
+];
+function readTemplates() {
+  const d = readJson(TPL_FILE(), null) || {};
+  return { templates: Array.isArray(d.templates) && d.templates.length ? d.templates : DEFAULT_TEMPLATES.map(t => ({ ...t })), sends: Array.isArray(d.sends) ? d.sends : [] };
+}
+function writeTemplates(d) { writeJson(TPL_FILE(), { templates: d.templates, sends: d.sends.slice(-200) }); }
+const PLACEHOLDERS = ["first_name", "name", "link", "password", "allowance", "season", "next_season", "deadline", "contact_name"];
+function fillTemplate(str, amb, extra = {}) {
+  const v = { first_name: String(amb.n || "").replace(/[“"].*?[”"]\s*/g, "").split(" ")[0], name: amb.n, link: `${SITE()}/#${amb.code}`,
+    password: SITE_PASSWORD || "(no password set)", allowance: amb.a != null ? "$" + Number(amb.a).toLocaleString("en-US", { maximumFractionDigits: 2 }) : "",
+    season: SEASON.storeOpen === false ? (SEASON.nextSeason || SEASON.season) : SEASON.season, next_season: SEASON.nextSeason || "", deadline: SEASON.deadline || "the deadline we'll share soon",
+    contact_name: "Jon Coen", ...extra };
+  return String(str || "").replace(/\{(\w+)\}/g, (m, k) => (k in v ? String(v[k] ?? "") : m));
+}
+function emailHtml(text, link) {
+  const esc = v => String(v).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const lines = String(text).split("\n"), out = []; let list = [];
+  const flush = () => { if (list.length) { out.push(`<ul style="margin:0 0 14px;padding-left:20px">${list.map(x => `<li style="margin:3px 0">${x}</li>`).join("")}</ul>`); list = []; } };
+  const autolink = s => esc(s).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" style="color:#43575E">$1</a>');
+  let para = [];
+  const pflush = () => { if (para.length) { out.push(`<p style="margin:0 0 14px;line-height:1.5">${para.join("<br>")}</p>`); para = []; } };
+  for (const raw of lines) {
+    const l = raw.trimEnd();
+    if (!l.trim()) { pflush(); flush(); continue; }
+    if (link && l.trim() === link) { pflush(); flush(); out.push(`<p style="margin:6px 0 18px"><a href="${esc(link)}" style="display:inline-block;background:#43575E;color:#fff;text-decoration:none;font-weight:bold;padding:12px 22px;border-radius:6px">Open your Jetty Ambassador page</a><br><span style="font-size:12px;color:#5b6b71">${esc(link)}</span></p>`); continue; }
+    if (/^\s*[-•]\s+/.test(l)) { pflush(); list.push(autolink(l.replace(/^\s*[-•]\s+/, ""))); continue; }
+    flush(); para.push(autolink(l));
+  }
+  pflush(); flush();
+  return `<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;color:#0d0f10;max-width:560px">
+    <div style="background:#43575E;color:#fff;padding:14px 18px;font-weight:bold;letter-spacing:.12em;font-size:13px">JETTY AMBASSADOR</div>
+    <div style="padding:18px 4px 4px">${out.join("")}</div></div>`;
+}
+function renderTemplate(t, amb) {
+  const subject = fillTemplate(t.subject, amb), text = fillTemplate(t.body, amb);
+  return { subject, text, html: emailHtml(text, `${SITE()}/#${amb.code}`) };
+}
+const ambEmails = a => String(a.e || "").split(/[,;\s]+/).filter(x => /@/.test(x));
 
 /* ---------- photoshoot gear requests ---------- */
 // Stored as JSON on disk. On Railway attach a Volume mounted at /data so requests survive redeploys.
@@ -1043,6 +1125,60 @@ http.createServer(async (req, res) => {
           error: staff ? "Upload setup problem: " + explainDrive(e.message) : "The upload couldn't be set up. Try again in a minute." });
       }
     }
+    if (req.method === "POST" && url.pathname.startsWith("/api/emails/")) {
+      let raw = ""; for await (const c of req) { raw += c; if (raw.length > 300000) return send(res, 413, { ok: false }); }
+      try {
+        const body = JSON.parse(raw), me = unlock(String(body.code || "").toUpperCase()), action = url.pathname.slice("/api/emails/".length);
+        if (!me.admin || !Array.isArray(me.roster)) return send(res, 403, { ok: false });
+        const d = readTemplates(), roster = me.roster;
+        const sample = roster.find(r => r.id === body.ambassadorId) || roster[0] || { n: "Sample Ambassador", a: 500, code: "SAMPLECODE", e: "" };
+        if (action === "list") return send(res, 200, { ok: true, templates: d.templates, sends: d.sends.slice(-40).reverse(), placeholders: PLACEHOLDERS,
+          mail: { ready: mailReady(), from: mailSaved()?.email || "" }, passwordSet: !!SITE_PASSWORD });
+        if (action === "save") {
+          const t = body.template || {}; const name = clip(t.name, 120), subject = clip(t.subject, 300), text = String(t.body || "").slice(0, 20000);
+          if (!name || !subject || !text.trim()) return send(res, 400, { ok: false, error: "A template needs a name, subject and message." });
+          let cur = d.templates.find(x => x.id === t.id);
+          if (!cur) { cur = { id: "t" + Date.now().toString(36) }; d.templates.push(cur); }
+          Object.assign(cur, { name, subject, body: text, updated: new Date().toISOString() });
+          writeTemplates(d); return send(res, 200, { ok: true, template: cur });
+        }
+        if (action === "delete") { d.templates = d.templates.filter(x => x.id !== body.id); if (!d.templates.length) d.templates = DEFAULT_TEMPLATES.map(t => ({ ...t })); writeTemplates(d); return send(res, 200, { ok: true }); }
+        if (action === "reset") { const def = DEFAULT_TEMPLATES.find(x => x.id === body.id); if (!def) return send(res, 404, { ok: false });
+          const i = d.templates.findIndex(x => x.id === body.id); if (i >= 0) d.templates[i] = { ...def }; else d.templates.push({ ...def }); writeTemplates(d); return send(res, 200, { ok: true, template: def }); }
+        if (action === "preview") {
+          const t = body.template || d.templates.find(x => x.id === body.id); if (!t) return send(res, 404, { ok: false });
+          return send(res, 200, { ok: true, to: ambEmails(sample), name: sample.n, ...renderTemplate(t, sample) });
+        }
+        if (action === "send") {
+          if (!mailReady()) return send(res, 503, { ok: false, error: "Connect Jon's Gmail first (Photo Gear Requests → Jon's Gmail → Connect)." });
+          const t = d.templates.find(x => x.id === body.id); if (!t) return send(res, 404, { ok: false, error: "Save the template first." });
+          if (body.test) {     // test: rendered for one ambassador but delivered to the given address (default: the sender)
+            const to = clip(body.testTo || mailSaved()?.email || MAIL_FROM, 200); const m = renderTemplate(t, sample);
+            await sendMail({ to, subject: "[TEST] " + m.subject, text: m.text, html: m.html }); return send(res, 200, { ok: true, test: true, to });
+          }
+          const ids = new Set(Array.isArray(body.ambassadorIds) ? body.ambassadorIds : []);
+          const targets = roster.filter(r => ids.has(r.id));
+          if (!targets.length) return send(res, 400, { ok: false, error: "Pick at least one ambassador." });
+          const results = [];
+          for (const a of targets) {          // one email per ambassador, each with only their own link
+            const to = ambEmails(a);
+            if (!to.length) { results.push({ id: a.id, n: a.n, ok: false, error: "no email on file" }); continue; }
+            try { const m = renderTemplate(t, a); await sendMail({ to, subject: m.subject, text: m.text, html: m.html }); results.push({ id: a.id, n: a.n, ok: true }); }
+            catch (e) { results.push({ id: a.id, n: a.n, ok: false, error: e.message.slice(0, 160) }); }
+            await new Promise(r => setTimeout(r, 250));
+          }
+          const rec = { id: "S" + Date.now().toString(36), at: new Date().toISOString(), templateId: t.id, templateName: t.name, subject: t.subject,
+            sent: results.filter(r => r.ok).length, failed: results.filter(r => !r.ok).length, results };
+          d.sends.push(rec); writeTemplates(d);
+          console.log(JSON.stringify({ event: "emails_sent", template: t.name, sent: rec.sent, failed: rec.failed }));
+          return send(res, 200, { ok: true, ...rec });
+        }
+        return send(res, 404, { ok: false });
+      } catch (e) {
+        console.error(JSON.stringify({ event: "emails_error", error: e.message }));
+        return send(res, e.message === "bad_code" || e.code === "ENOENT" ? 403 : 500, { ok: false, error: e.message.slice(0, 200) });
+      }
+    }
     if (req.method === "POST" && url.pathname === "/api/admin/seasons") {
       let raw = ""; for await (const c of req) { raw += c; if (raw.length > 2000) return send(res, 413, { ok: false }); }
       try {
@@ -1090,7 +1226,7 @@ http.createServer(async (req, res) => {
     }
     if (url.pathname === "/api/health/drive") return send(res, 200, googleReady() ? await driveCheck() : { ok: false, problem: explainDrive("") });
     if (url.pathname === "/api/health") {
-      const out = { ok: true, build: BUILD, slackReady: !!SLACK_URL, slackEvents: [...SLACK_ON], emailReady: mailReady(), emailFrom: mailSaved()?.email || null, emailTo: MAIL_TO, uploadsEnabled: googleReady(), uploadsMode: googleMode(), uploadsAccount: googleMode() === "account" ? oauthSaved().email : SA ? SA.client_email : null, savedRequests: readRequests().length, tokenSet: !!AM_TOKEN, dryRun: DRY_RUN, dataDir: DATA_DIR, persistentStorage: DATA_DIR === "/data", subdomain: AM_BASE.split("//")[1].split(".")[0] };
+      const out = { ok: true, build: BUILD, liveTracking: !!EASYPOST, slackReady: !!SLACK_URL, slackEvents: [...SLACK_ON], emailReady: mailReady(), emailFrom: mailSaved()?.email || null, emailTo: MAIL_TO, uploadsEnabled: googleReady(), uploadsMode: googleMode(), uploadsAccount: googleMode() === "account" ? oauthSaved().email : SA ? SA.client_email : null, savedRequests: readRequests().length, tokenSet: !!AM_TOKEN, dryRun: DRY_RUN, dataDir: DATA_DIR, persistentStorage: DATA_DIR === "/data", subdomain: AM_BASE.split("//")[1].split(".")[0] };
       if (url.searchParams.get("check") === "1" && process.env.ADMIN_KEY && url.searchParams.get("key") === process.env.ADMIN_KEY) {
         try { out.warehouseId = await warehouseId(); out.divisionId = await divisionId(); out.amReachable = true; } catch (e) { out.amReachable = false; out.amError = e.message; }
       }

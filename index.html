@@ -633,6 +633,50 @@ body.closed .band .bar1{grid-template-columns:1fr auto}
 .sooncard em{font-style:normal;font-weight:600;color:var(--slate);font-size:14px}
 .staffonly{margin-top:8px;font-size:13px}
 @media(max-width:760px){.sooncards{grid-template-columns:1fr}.soonhero{padding-block:40px 44px}}
+/* email templates */
+.emgrid{display:grid;grid-template-columns:220px minmax(0,1fr);gap:18px;margin-top:10px;align-items:start}
+.emlist{display:flex;flex-direction:column;gap:6px;position:sticky;top:calc(var(--pband-h,150px) + 12px)}
+.emt{all:unset;box-sizing:border-box;cursor:pointer;border:1px solid var(--line);border-radius:var(--r);padding:10px 12px;background:var(--surface);display:flex;flex-direction:column;gap:2px}
+.emt b{font-size:14px}.emt small{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.emt.on{border-color:var(--slate);box-shadow:inset 3px 0 0 var(--slate);background:var(--accent-soft)}
+.emt.new{border-style:dashed;color:var(--slate);font-weight:600;font-size:14px}
+.emt:focus-visible{outline:2px solid var(--slate);outline-offset:1px}
+.emedit{display:flex;flex-direction:column;gap:12px;min-width:0}
+.emedit textarea{width:100%;font:inherit;font-size:14.5px;line-height:1.5;border:1px solid var(--line);border-radius:var(--r);padding:10px 12px;background:var(--bg);resize:vertical}
+.emedit select{width:100%;font:inherit;font-size:15px;border:1px solid var(--line);border-radius:var(--r);padding:9px 10px;background:var(--bg)}
+.emedit .psec{margin:14px 0 0}.emedit .psec small{font-family:var(--f-body);font-size:13px;color:var(--muted);letter-spacing:0;margin-left:6px}
+.emph{font-size:12.5px;color:var(--muted);display:flex;flex-wrap:wrap;gap:5px;align-items:center}
+.emph button{all:unset;cursor:pointer;font-family:var(--f-mono);font-size:11.5px;border:1px solid var(--line);border-radius:4px;padding:2px 7px;color:var(--slate);background:var(--surface)}
+.emph button:hover{border-color:var(--slate)}
+.empv{border:1px solid var(--line);border-radius:var(--r);background:#fff;overflow:hidden}
+.empvh{padding:10px 14px;border-bottom:1px solid var(--line);font-size:13px;display:flex;flex-direction:column;gap:3px;background:var(--tile)}
+.empvh small{display:inline-block;width:56px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-size:10.5px}
+.empvb{padding:14px 18px;max-height:520px;overflow:auto}
+.emrhead{display:flex;flex-direction:column;gap:8px}
+.emrhead .search{margin:0}.emrhead .search input{width:100%}
+.emsel{display:flex;gap:14px}.emsel .link{margin:0}
+.emrlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px;max-height:340px;overflow:auto;border:1px solid var(--line);border-radius:var(--r);padding:8px;background:var(--surface)}
+.emr{display:flex;gap:8px;align-items:flex-start;padding:6px 8px;border-radius:4px;cursor:pointer}
+.emr:hover{background:var(--tile)}
+.emr input{margin-top:3px;accent-color:var(--slate)}
+.emr b{display:block;font-size:13.5px}.emr small{display:block;font-size:11.5px;color:var(--muted);overflow-wrap:anywhere}
+.emsend{display:flex;flex-direction:column;gap:10px;align-items:flex-start}
+.emtest{display:flex;gap:8px;flex-wrap:wrap;width:100%}
+.emtest input{flex:1 1 220px;font:inherit;font-size:14px;border:1px solid var(--line);border-radius:var(--r);padding:8px 10px}
+.emhist{font-size:13px;color:var(--muted);display:flex;flex-direction:column;gap:4px}
+.emhist b{color:var(--ink)}
+@media(max-width:860px){.emgrid{grid-template-columns:1fr}.emlist{position:static;flex-direction:row;overflow-x:auto}.emt{min-width:180px}}
+/* live tracking */
+.trkcard{border:1px solid var(--line);border-radius:var(--r);background:var(--surface);padding:10px 12px;margin-top:6px;width:100%}
+.trktop{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center}
+.trkst{font-weight:700;font-size:14px}
+.trkst.delivered{color:var(--ok)}.trkst.problem{color:var(--warn)}
+.trkbar{display:flex;gap:4px;margin:8px 0 6px}
+.trkbar i{flex:1;height:5px;border-radius:999px;background:var(--tile)}
+.trkbar i.on{background:var(--slate)}.trkbar.delivered i.on{background:var(--ok)}
+.trkev{list-style:none;margin:6px 0 0;padding:0;font-size:12.5px;display:flex;flex-direction:column;gap:5px;border-left:2px solid var(--line);padding-left:10px}
+.trkev li small{color:var(--muted);display:block}
+.trkmore{font-size:12px}
 </style></head><body>
 <header class="top">
   <div class="band">
@@ -1199,8 +1243,25 @@ function shipBox(o, asId){
   const btn = sh.canConfirm ? `<button type="button" class="pickbtn" data-pickup="${esc(o.amOrderId)}"${asId ? ` data-as="${esc(asId)}"` : ""}>Mark as picked up</button>` : "";
   return `<div class="ship st-${esc(sh.state || "processing")}"><span class="sico" aria-hidden="true">${icon}</span>
     <div class="stx"><b>${esc(sh.label || "Processing")}</b>${o.shipDate ? ` <small>${esc(o.shipDate)}</small>` : ""}${where ? `<small>${where}</small>` : ""}
-      ${tr.length ? `<div class="trk">${tr.map(t => `<a href="${esc(t.url)}" target="_blank" rel="noopener">${t.carrier ? esc(t.carrier) + " " : ""}<span class="code">${esc(t.number)}</span> ↗</a>`).join("")}</div>`
+      ${tr.length ? tr.map(trackCard).join("")
         : (sh.state !== "processing" && !sh.pickup ? `<small>Tracking number not available yet.</small>` : "")}</div>${btn}</div>`;
+}
+/* Tracking: number + carrier link always; live status and scan history when the site has live tracking on (EasyPost). */
+const TRK_STEPS = ["pre_transit", "in_transit", "out_for_delivery", "delivered"];
+const TRK_LABEL = { pre_transit: "Label created", in_transit: "In transit", out_for_delivery: "Out for delivery", delivered: "Delivered",
+  available_for_pickup: "Ready for pickup at carrier", return_to_sender: "Returning to sender", failure: "Delivery problem", cancelled: "Cancelled", error: "Tracking unavailable", unknown: "Waiting for carrier update" };
+const fmtWhen = d => { if (!d) return ""; const x = new Date(d); return isNaN(x) ? "" : x.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); };
+function trackCard(t){
+  const L = t.live, link = `<a class="trkmore" href="${esc((L && L.publicUrl) || t.url)}" target="_blank" rel="noopener">${esc(t.carrier || "Carrier")} <span class="code">${esc(t.number)}</span> ↗</a>`;
+  if (!L) return `<div class="trk">${link}</div>`;
+  const step = TRK_STEPS.indexOf(L.status), problem = ["return_to_sender", "failure", "cancelled", "error"].includes(L.status);
+  const ev = L.events || [];
+  return `<div class="trkcard"><div class="trktop"><span class="trkst${L.status === "delivered" ? " delivered" : problem ? " problem" : ""}">${esc(TRK_LABEL[L.status] || L.status)}</span>${link}</div>
+    ${step >= 0 ? `<div class="trkbar${L.status === "delivered" ? " delivered" : ""}">${TRK_STEPS.map((s, i) => `<i class="${i <= step ? "on" : ""}" title="${esc(TRK_LABEL[s])}"></i>`).join("")}</div>` : ""}
+    <small>${L.status === "delivered" ? `Delivered${ev[0] ? " " + esc(fmtWhen(ev[0].at)) : ""}${L.signedBy ? " · signed by " + esc(L.signedBy) : ""}` : L.est ? `Estimated delivery ${esc(new Date(L.est).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }))}` : ""}</small>
+    ${ev.length ? `<details><summary class="trkmore">${ev[0] ? esc(ev[0].msg) + (ev[0].where ? " · " + esc(ev[0].where) : "") + " · " + esc(fmtWhen(ev[0].at)) : ""}</summary>
+      <ul class="trkev">${ev.map(x => `<li>${esc(x.msg)}<small>${esc([x.where, fmtWhen(x.at)].filter(Boolean).join(" · "))}</small></li>`).join("")}</ul></details>` : ""}
+  </div>`;
 }
 function seasonCard(s, ns){
   const key = (ns ? ns + "|" : "") + s.code;
@@ -1228,7 +1289,7 @@ let ADM = { q: "", open: null, data: {} };
 const isStaff = () => !!(S.me && S.me.admin && Array.isArray(S.me.roster));
 let PTAB = "orders";
 const PTABS = [["orders","Past Orders"],["requests","Photo Gear Requests"],["upload","Upload Content"]];
-const STAFF_TABS = [["seasons","Orders by Season"]];
+const STAFF_TABS = [["seasons","Orders by Season"],["emails","Email Templates"]];
 let SEAS = { data: null, pick: null, sort: "n", prod: "" };
 const prodName = st => { const p = PRODUCTS.find(x => x.s === st); return p ? `${p.d} – ${p.c}` : ""; };
 function allItemsBySeason(){
@@ -1723,6 +1784,7 @@ function renderProfile(){
     : PTAB === "requests" ? (staff ? staffRequestsPanel() : requestsSection())
     : PTAB === "upload" ? uploadPanel()
     : PTAB === "seasons" && staff ? seasonsPanel()
+    : PTAB === "emails" && staff ? emailsPanel()
     : myPanel();
   body.classList.add("staffgrid");
   body.innerHTML = profileSidebar() + `<section class="pmain">${main}</section>`;
@@ -1732,6 +1794,9 @@ function renderProfile(){
 $("who").addEventListener("click", openProfile);
 $("profBack").addEventListener("click", closeProfile);
 $("profBody").addEventListener("input", e => {
+  if (["em-name","em-subject","em-body"].includes(e.target.id)) { readEm(); if (!EM.dirty) { EM.dirty = true; markDirty(); } loadPreview(); return; }
+  if (e.target.id === "em-testto") { EM.testTo = e.target.value; return; }
+  if (e.target.id === "em-q") { EM.q = e.target.value; const pos = e.target.selectionStart; renderProfile(); const q = $("em-q"); if (q) { q.focus(); q.setSelectionRange(pos, pos); } return; }
   if (e.target.id === "prodQ") {
     SEAS.prod = e.target.value; const pos = e.target.selectionStart; renderProfile();
     const el = $("prodQ"); if (el) { el.focus(); el.setSelectionRange(pos, pos); } return;
@@ -1743,11 +1808,15 @@ $("profBody").addEventListener("input", e => {
 });
 $("profBody").addEventListener("submit", e => { if (e.target.id === "reqForm") { e.preventDefault(); submitRequest(); } });
 $("profBody").addEventListener("change", async e => {
+  if (e.target.id === "em-sample") { EM.sample = e.target.value; loadPreview(); return; }
+  if (e.target.dataset && e.target.dataset.pick) { e.target.checked ? EM.picked.add(e.target.dataset.pick) : EM.picked.delete(e.target.dataset.pick);
+    const h = document.querySelector(".pmain h3.psec small"); renderProfile(); return; }
   if (e.target.id === "rq-otherchk") { const o = $("rq-other"); o.hidden = !e.target.checked; if (e.target.checked) o.focus(); return; }
   const st = e.target.closest(".rstat");
   if (st) { try { const j = await reqApi("status", { id: st.dataset.req, status: st.value }); const r = REQ.all.find(x => x.id === j.request.id); if (r) r.status = j.request.status; toast("Status updated"); } catch (x) { toast(x.message); } renderProfile(); }
 });
 $("profBody").addEventListener("click", e => {
+  if (PTAB === "emails" && !ADM.open && e.target.closest("[data-tpl],[data-ph],[data-emf],#emNew,#emSave,#emReset,#emDelete,#emAll,#emNone,#emSend,#emCancel,#emTest,#emGo")) { emClick(e); return; }
   if (e.target.id === "slack-test") { e.target.disabled = true; e.target.textContent = "Sending…";
     reqApi("slack-test").then(() => toast("Test message sent to Slack")).catch(x => toast(x.message)).finally(() => { e.target.disabled = false; e.target.textContent = "Send test message"; }); return; }
   if (e.target.id === "mail-connect") { e.target.disabled = true; reqApi("email-connect").then(j => { location.href = j.url; }).catch(x => { toast(x.message); e.target.disabled = false; }); return; }
@@ -1824,6 +1893,107 @@ $("upModal").addEventListener("dragover", e => { const d = e.target.closest("#up
 $("upModal").addEventListener("dragleave", e => { const d = e.target.closest("#up-drop"); if (d) d.classList.remove("over"); });
 $("upModal").addEventListener("drop", e => { const d = e.target.closest("#up-drop"); if (d) { e.preventDefault(); readUp(); addFiles(e.dataTransfer.files); } });
 window.addEventListener("beforeunload", e => { if (UP.busy) { e.preventDefault(); e.returnValue = ""; } });
+
+/* ===== Email templates (staff): edit, preview, pick recipients, send one personal email each ===== */
+let EM = { data: null, sel: null, draft: null, dirty: false, sample: "", preview: null, q: "", picked: new Set(), filter: "all", busy: false, confirm: false, result: null, testTo: "" };
+async function emApi(action, extra){
+  const r = await fetch("/api/emails/" + action, { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ code: S.code, ...(extra || {}) }) });
+  const j = await r.json().catch(() => ({})); if (!r.ok || !j.ok) throw new Error(j.error || "Something went wrong. Try again."); return j;
+}
+async function loadEmails(keepSel){
+  try { EM.data = await emApi("list"); } catch (e) { EM.data = { error: e.message }; }
+  if (EM.data.templates) { const t = EM.data.templates.find(x => x.id === (keepSel || EM.sel)) || EM.data.templates[0]; selectTemplate(t, true); }
+  renderProfile();
+}
+function selectTemplate(t, silent){ EM.sel = t.id; EM.draft = { ...t }; EM.dirty = false; EM.confirm = false; EM.result = null; EM.preview = null; if (!silent) renderProfile(); loadPreview(); }
+let pvTimer = null;
+function loadPreview(){
+  clearTimeout(pvTimer);
+  pvTimer = setTimeout(async () => { try { EM.preview = await emApi("preview", { template: EM.draft, ambassadorId: EM.sample || undefined }); } catch (e) { EM.preview = { error: e.message }; }
+    const box = $("emPreview"); if (box) box.outerHTML = previewHTML(); else renderProfile(); }, 250);
+}
+function previewHTML(){
+  const pv = EM.preview;
+  return `<div class="empv" id="emPreview">${!pv ? `<p class="hint">Loading preview…</p>` : pv.error ? `<p class="hint">${esc(pv.error)}</p>`
+    : `<div class="empvh"><div><small>To</small> ${esc(pv.name)} &lt;${esc((pv.to || []).join(", ") || "no email on file")}&gt;</div><div><small>Subject</small> <b>${esc(pv.subject)}</b></div></div><div class="empvb">${pv.html}</div>`}</div>`;
+}
+function emRecipients(){
+  const roster = S.me.roster || [], q = EM.q.toLowerCase();
+  let list = roster;
+  if (EM.filter === "notordered" && Array.isArray(SEAS.data)) { const cur = SEAS.data.find(s => s.current); if (cur) { const done = new Set(cur.people.map(p => p.id)); list = list.filter(r => !done.has(r.id)); } }
+  if (EM.filter === "ordered" && Array.isArray(SEAS.data)) { const cur = SEAS.data.find(s => s.current); if (cur) { const done = new Set(cur.people.map(p => p.id)); list = list.filter(r => done.has(r.id)); } }
+  if (q) list = list.filter(r => (r.n + " " + r.e).toLowerCase().includes(q));
+  return list;
+}
+function emailsPanel(){
+  if (EM.data === null) { EM.data = "loading"; loadEmails(); }
+  if ((EM.filter !== "all") && SEAS.data === null) { SEAS.data = "loading"; loadSeasons(); }
+  const head = `<div class="ambh"><div class="pwho"><span class="av big dark">@</span><div><small>All ambassadors</small><h2>Email Templates</h2>
+      <p class="hint">Write and edit emails, preview them for any ambassador, then send. Each ambassador gets their own copy with only their own link.</p></div></div></div>`;
+  if (EM.data === "loading") return head + `<p class="hint pload">Loading templates…</p>`;
+  if (EM.data.error) return head + `<p class="hint pload">${esc(EM.data.error)}</p>`;
+  const d = EM.data, t = EM.draft || {}, list = emRecipients(), pickedN = EM.picked.size;
+  const mail = d.mail.ready ? `<div class="gconn on"><div><b>Sends from:</b> ${esc(d.mail.from)} (Jon's Gmail)</div></div>`
+    : `<div class="gconn"><div><b>Email isn't connected.</b> Connect Jon's Gmail under Photo Gear Requests before sending.</div></div>`;
+  return head + mail + (d.passwordSet ? "" : `<div class="note">No site password is set, so {password} will show "(no password set)".</div>`) + `
+    <div class="emgrid">
+      <div class="emlist">${d.templates.map(x => `<button type="button" class="emt${x.id === EM.sel ? " on" : ""}" data-tpl="${esc(x.id)}"><b>${esc(x.name)}</b><small>${esc(x.subject)}</small></button>`).join("")}
+        <button type="button" class="emt new" id="emNew">+ New template</button></div>
+      <div class="emedit">
+        <label class="f"><span>Template name</span><input id="em-name" value="${esc(t.name || "")}"></label>
+        <label class="f"><span>Subject</span><input id="em-subject" value="${esc(t.subject || "")}"></label>
+        <label class="f"><span>Message</span><textarea id="em-body" rows="14">${esc(t.body || "")}</textarea></label>
+        <div class="emph">Insert: ${d.placeholders.map(k => `<button type="button" data-ph="${k}">{${k}}</button>`).join("")}</div>
+        <p class="hint">{link} is each ambassador's own personal link. On a line by itself it becomes a button. Lines starting with "- " become bullets.</p>
+        <div class="rbtns"><button type="button" class="primary small" id="emSave"${EM.dirty ? "" : " disabled"}>${EM.dirty ? "Save changes" : "Saved"}</button>
+          ${["welcome","order-time","content"].includes(t.id) ? `<button type="button" class="link" id="emReset">Reset to original</button>` : `<button type="button" class="link" id="emDelete">Delete template</button>`}</div>
+        <h3 class="psec">Preview</h3>
+        <label class="f"><span>Preview as</span><select id="em-sample">${(S.me.roster || []).map(r => `<option value="${esc(r.id)}"${r.id === EM.sample ? " selected" : ""}>${esc(r.n)}</option>`).join("")}</select></label>
+        ${previewHTML()}
+        <h3 class="psec">Recipients <small>${pickedN} selected</small></h3>
+        <div class="emrhead">
+          <div class="chips">${[["all","Everyone"],["notordered","Haven't ordered this season"],["ordered","Ordered this season"]].map(([k,l]) => `<button type="button" class="chip" data-emf="${k}" aria-pressed="${EM.filter===k}">${l}</button>`).join("")}</div>
+          <label class="search"><span aria-hidden="true">⌕</span><input id="em-q" type="search" placeholder="Find an ambassador" value="${esc(EM.q)}"></label>
+          <div class="emsel"><button type="button" class="link" id="emAll">Select all shown (${list.length})</button><button type="button" class="link" id="emNone">Clear</button></div>
+        </div>
+        <div class="emrlist">${(EM.filter !== "all" && !Array.isArray(SEAS.data)) ? `<p class="hint">Loading this season's orders…</p>` : list.map(r => `<label class="emr"><input type="checkbox" data-pick="${esc(r.id)}"${EM.picked.has(r.id) ? " checked" : ""}><span><b>${esc(r.n)}</b><small>${esc(r.e || "no email on file")}</small></span></label>`).join("") || `<p class="hint">No one matches.</p>`}</div>
+        <h3 class="psec">Send</h3>
+        <div class="emsend">
+          <div class="emtest"><input id="em-testto" type="email" placeholder="${esc(d.mail.from || "joncoen@jettylife.com")}" value="${esc(EM.testTo)}"><button type="button" class="alink" id="emTest"${d.mail.ready && !EM.dirty ? "" : " disabled"}>Send me a test</button></div>
+          ${EM.confirm ? `<div class="note">Send “${esc(t.subject)}” to <b>${pickedN}</b> ambassador${pickedN === 1 ? "" : "s"} from ${esc(d.mail.from)}? Each gets their own copy with their own link.
+              <div class="rbtns" style="margin-top:8px"><button type="button" class="primary small" id="emGo"${EM.busy ? " disabled" : ""}>${EM.busy ? "Sending…" : "Yes, send now"}</button><button type="button" class="ghost" id="emCancel">Cancel</button></div></div>`
+            : `<button type="button" class="primary" id="emSend"${d.mail.ready && pickedN && !EM.dirty ? "" : " disabled"}>Send to ${pickedN} ambassador${pickedN === 1 ? "" : "s"}</button>
+               ${EM.dirty ? `<small class="hint">Save your changes before sending.</small>` : ""}`}
+          ${EM.result ? `<div class="okbox"><b>${EM.result.sent} sent${EM.result.failed ? `, ${EM.result.failed} failed` : ""}</b>${(EM.result.results || []).filter(r => !r.ok).map(r => `${esc(r.n)}: ${esc(r.error)}`).join("<br>")}</div>` : ""}
+        </div>
+        ${d.sends.length ? `<h3 class="psec">Sent history</h3><div class="emhist">${d.sends.map(x => `<div><b>${esc(x.templateName)}</b> · ${new Date(x.at).toLocaleString("en-US",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"})} · ${x.sent} sent${x.failed ? `, ${x.failed} failed` : ""}</div>`).join("")}</div>` : ""}
+      </div>
+    </div>`;
+}
+function readEm(){ if (!$("em-name")) return; EM.draft = { ...EM.draft, name: $("em-name").value, subject: $("em-subject").value, body: $("em-body").value }; }
+async function emClick(e){
+  const id = e.target.id;
+  const tp = e.target.closest("[data-tpl]"); if (tp) { const t = EM.data.templates.find(x => x.id === tp.dataset.tpl); if (t) selectTemplate(t); return true; }
+  const ph = e.target.closest("[data-ph]");
+  if (ph) { const ta = $("em-body"); const ins = "{" + ph.dataset.ph + "}"; const s = ta.selectionStart ?? ta.value.length;
+    ta.value = ta.value.slice(0, s) + ins + ta.value.slice(ta.selectionEnd ?? s); ta.focus(); ta.setSelectionRange(s + ins.length, s + ins.length); readEm(); EM.dirty = true; markDirty(); loadPreview(); return true; }
+  const ef = e.target.closest("[data-emf]"); if (ef) { EM.filter = ef.dataset.emf; renderProfile(); return true; }
+  if (id === "emNew") { EM.sel = null; EM.draft = { id: "", name: "New template", subject: "", body: "Hi {first_name},\n\n\n\n{link}\n\nThanks,\nJon" }; EM.dirty = true; EM.preview = null; renderProfile(); loadPreview(); return true; }
+  if (id === "emSave") { readEm(); try { const j = await emApi("save", { template: EM.draft }); EM.dirty = false; toast("Template saved"); await loadEmails(j.template.id); } catch (x) { toast(x.message); } return true; }
+  if (id === "emReset") { try { const j = await emApi("reset", { id: EM.draft.id }); toast("Reset to the original"); await loadEmails(j.template.id); } catch (x) { toast(x.message); } return true; }
+  if (id === "emDelete") { if (!EM.draft.id) { await loadEmails(); return true; } try { await emApi("delete", { id: EM.draft.id }); toast("Template deleted"); EM.sel = null; await loadEmails(); } catch (x) { toast(x.message); } return true; }
+  if (id === "emAll") { emRecipients().forEach(r => EM.picked.add(r.id)); renderProfile(); return true; }
+  if (id === "emNone") { EM.picked.clear(); renderProfile(); return true; }
+  if (id === "emSend") { EM.confirm = true; EM.result = null; renderProfile(); return true; }
+  if (id === "emCancel") { EM.confirm = false; renderProfile(); return true; }
+  if (id === "emTest") { e.target.disabled = true; try { const j = await emApi("send", { id: EM.sel, test: true, testTo: EM.testTo || undefined, ambassadorId: EM.sample || undefined }); toast("Test sent to " + j.to); } catch (x) { toast(x.message); } e.target.disabled = false; return true; }
+  if (id === "emGo") { EM.busy = true; renderProfile();
+    try { EM.result = await emApi("send", { id: EM.sel, ambassadorIds: [...EM.picked] }); EM.picked.clear(); toast(`${EM.result.sent} email${EM.result.sent === 1 ? "" : "s"} sent`); }
+    catch (x) { EM.result = { sent: 0, failed: 0, results: [{ n: "Error", error: x.message }] }; }
+    EM.busy = false; EM.confirm = false; await loadEmails(EM.sel); return true; }
+  return false;
+}
+function markDirty(){ const b = $("emSave"); if (b) { b.disabled = false; b.textContent = "Save changes"; } const s = $("emSend"); if (s) s.disabled = true; const t = $("emTest"); if (t) t.disabled = true; }
 
 /* ===== Between seasons: "coming soon" page instead of the store (season.json storeOpen: false) ===== */
 function showSoon(){
