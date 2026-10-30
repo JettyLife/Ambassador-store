@@ -724,6 +724,14 @@ async function findFolder(name, parent) {
   const j = await gdrive(`drive/v3/files?${ALL}&corpora=allDrives&fields=files(id,name)&q=${encodeURIComponent(q)}`);
   return (j.files || [])[0] || null;
 }
+async function folderHasMedia(id) {     // anything in it besides "Upload info.txt"?
+  const q = `'${id}' in parents and trashed = false and name != 'Upload info.txt'`;
+  const j = await gdrive(`drive/v3/files?${ALL}&corpora=allDrives&pageSize=1&fields=files(id)&q=${encodeURIComponent(q)}`);
+  return (j.files || []).length > 0;
+}
+async function trashFile(id) {
+  return gdrive(`drive/v3/files/${id}?supportsAllDrives=true&fields=id`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ trashed: true }) });
+}
 async function makeFolder(name, parent) {
   return gdrive(`drive/v3/files?supportsAllDrives=true&fields=id,name,webViewLink`, { method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name, mimeType: "application/vnd.google-apps.folder", parents: [parent] }) });
@@ -851,7 +859,18 @@ async function startUpload(me, form, files, origin) {
   const amb = await ambassadorFolder(me);
   // B: "<date> - <description>" subfolder; a second upload with the same name gets " (2)", " (3)"...
   let base = folderName(`${f.shootDate} - ${f.desc}`), name = base, n = 2;
-  while (await findFolder(name, amb)) name = `${base} (${n++})`;
+  // A same-name folder holding no photos/videos (left by an upload that failed or was abandoned) is removed and
+  // made fresh; one with real files keeps it, and this upload gets " (2)", " (3)"…
+  for (;;) {
+    const ex = await findFolder(name, amb); if (!ex) break;
+    if (!(await folderHasMedia(ex.id))) {
+      await trashFile(ex.id);
+      const all0 = readJson(UPLOADS_FILE(), []); writeJson(UPLOADS_FILE(), all0.filter(r => r.folder.id !== ex.id));
+      console.log(JSON.stringify({ event: "empty_upload_folder_replaced", folder: name }));
+      break;
+    }
+    name = `${base} (${n++})`;
+  }
   const sub = await makeFolder(name, amb);
   // C: the form answers as a text file in the folder
   const info = await uploadText("Upload info.txt", sub.id, uploadInfo(me, f, list));
@@ -871,6 +890,12 @@ async function finishUpload(me, id, results) {
   rec.files = rec.files.map(x => ({ ...x, status: ok.has(x.i) ? "uploaded" : "NOT uploaded" }));
   rec.done = true; rec.uploaded = rec.files.filter(x => x.status === "uploaded").length;
   const missing = rec.files.length - rec.uploaded;
+  if (!rec.uploaded) {          // nothing made it: delete the empty folder so the next try recreates it under the same name
+    try { await trashFile(rec.folder.id); } catch (e) { console.error(JSON.stringify({ event: "empty_folder_delete_failed", error: e.message })); }
+    writeJson(UPLOADS_FILE(), all.filter(r => r.id !== id));
+    console.log(JSON.stringify({ event: "upload_failed_folder_removed", id, folder: rec.folder.name }));
+    return { uploaded: 0, missing, folder: rec.folder.name, removed: true };
+  }
   try { await uploadText("Upload info.txt", null, uploadInfo(me, rec.form, rec.files, missing ? `${missing} file(s) did not finish uploading.` : "All files uploaded."), rec.infoId); }
   catch (e) { console.error(JSON.stringify({ event: "upload_info_update_failed", error: e.message })); }
   writeJson(UPLOADS_FILE(), all);
@@ -1097,6 +1122,8 @@ http.createServer(async (req, res) => {
             return send(res, 200, { ok: true, to: MAIL_TO }); }
           catch (e) { return send(res, 502, { ok: false, error: /insufficient|scope|403/i.test(e.message) ? "Gmail refused. Make sure the Gmail API is enabled in the Cloud project, then reconnect." : e.message.slice(0, 200) }); }
         }
+        if (action === "delete") { const list = readRequests(); writeRequests(list.filter(x => x.id !== body.id)); return send(res, 200, { ok: true }); }
+        if (action === "clear") { const n = readRequests().length; writeRequests([]); console.log(JSON.stringify({ event: "gear_requests_cleared", count: n })); return send(res, 200, { ok: true, removed: n }); }
         if (action === "status") {
           const list = readRequests(), r = list.find(x => x.id === body.id);
           if (!r || !["Open", "Sent", "Done", "Declined"].includes(body.status)) return send(res, 400, { ok: false });

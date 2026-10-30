@@ -677,6 +677,11 @@ body.closed .band .bar1{grid-template-columns:1fr auto}
 .trkev{list-style:none;margin:6px 0 0;padding:0;font-size:12.5px;display:flex;flex-direction:column;gap:5px;border-left:2px solid var(--line);padding-left:10px}
 .trkev li small{color:var(--muted);display:block}
 .trkmore{font-size:12px}
+.rstaff{display:flex;align-items:center;gap:10px}
+.rstaff .link{margin:0;font-size:12.5px}
+.rdel{font-size:12.5px;color:var(--warn)}
+.rclear{font-size:13px;color:var(--muted);margin:-2px 0 6px;text-align:right}
+.rclear .link{margin:0 0 0 6px}
 </style></head><body>
 <header class="top">
   <div class="band">
@@ -1487,7 +1492,9 @@ function uploadPanel(){
         <div><b>Google Drive:</b> ${UP.google.mode === "account" ? `uploading as ${esc(UP.google.account || "connected account")}` : UP.google.mode === "service" ? "service account (needs a Shared Drive)" : "not connected"}</div>
         ${UP.google.canConnect ? `<button type="button" class="alink" id="g-connect">${UP.google.mode === "account" ? "Reconnect" : "Connect Google Drive"}</button>` : `<small>Add the Google OAuth client ID and secret in Railway to connect.</small>`}</div>` : ""}
     ${UP.enabled ? "" : `<div class="note">Uploads aren't switched on yet. Check back soon.</div>`}
-    ${UP.result ? `<div class="okbox"><b>Upload complete</b>${UP.result.uploaded} file${UP.result.uploaded===1?"":"s"} sent to “${esc(UP.result.folder)}”.${UP.result.missing ? ` ${UP.result.missing} didn't finish. Try those again in a new upload.` : " Thank you!"}</div>` : ""}
+    ${UP.result ? (UP.result.removed || !UP.result.uploaded
+      ? `<div class="note"><b>Your upload didn't go through.</b> None of the files made it, so nothing was saved. Check your connection and try again with the same details.</div>`
+      : `<div class="okbox"><b>Upload complete</b>${UP.result.uploaded} file${UP.result.uploaded===1?"":"s"} sent to “${esc(UP.result.folder)}”.${UP.result.missing ? ` ${UP.result.missing} didn't finish. Try those again in a new upload.` : " Thank you!"}</div>`) : ""}
     <h3 class="psec">${staff ? "All uploads" : "Your uploads"}</h3>
     ${L === "loading" ? `<p class="hint">Loading…</p>` : L && L.error ? `<p class="hint">Couldn't load uploads.</p>`
       : Array.isArray(L) && L.length ? `<div class="rlist">${L.map(u => uploadRow(u, staff)).join("")}</div>` : `<p class="hint">No uploads yet.</p>`}`;
@@ -1688,7 +1695,8 @@ function reqCard(r, staff){
   return `<article class="rcard st-${esc(r.status.toLowerCase())}" data-item="${esc(r.id)}">
     <div class="rtop"><div><b>${staff ? esc(r.who.n) + " · " : ""}${esc(r.location)}</b>
       <small>Submitted ${fmtDate(r.at.slice(0,10))}${r.test ? " · TEST" : ""}${staff && r.emailed ? " · Emailed" : ""}</small></div>
-      ${staff ? `<select class="rstat" data-req="${esc(r.id)}" aria-label="Status">${["Open","Sent","Done","Declined"].map(s => `<option${s===r.status?" selected":""}>${s}</option>`).join("")}</select>`
+      ${staff ? `<span class="rstaff">${REQ.delAsk === r.id ? `<span class="rdel">Delete? <button type="button" class="link" data-reqdel="${esc(r.id)}">Yes</button> <button type="button" class="link" data-reqdelno="1">No</button></span>`
+          : `<button type="button" class="link" data-reqdelask="${esc(r.id)}">Delete</button>`}<select class="rstat" data-req="${esc(r.id)}" aria-label="Status">${["Open","Sent","Done","Declined"].map(s => `<option${s===r.status?" selected":""}>${s}</option>`).join("")}</select></span>`
         : `<span class="rpill">${esc(r.status === "Open" ? "Submitted" : r.status)}</span>`}</div>
     <dl class="rdl"><dt>Need by</dt><dd>${fmtDate(r.needBy)}</dd>
       ${r.shootDate ? `<dt>Shoot date</dt><dd>${fmtDate(r.shootDate)}</dd>` : ""}
@@ -1753,6 +1761,9 @@ function staffRequestsPanel(){
   return `<div class="ambh"><div class="pwho"><span class="av big dark">↗</span><div><small>All ambassadors</small><h2>Photo Gear Requests</h2>
       <p class="hint">Photoshoot gear requests from every ambassador, newest first.</p></div></div></div>
     ${mailBar()}
+    ${Array.isArray(REQ.all) && REQ.all.length ? `<div class="rclear">${REQ.clearAsk
+      ? `Delete all ${REQ.all.length} requests for everyone? This can't be undone. <button type="button" class="link" id="reqClearYes">Yes, delete all</button> <button type="button" class="link" id="reqClearNo">Cancel</button>`
+      : `<button type="button" class="link" id="reqClear">Clear all requests</button>`}</div>` : ""}
     <div class="chips rfilt">${["Open","Sent","Done","Declined","All"].map(f => `<button type="button" class="chip" data-rfilter="${f}" aria-pressed="${REQ.filter===f}">${f}${f!=="All" ? ` <small>${all.filter(r=>r.status===f).length}</small>` : ""}</button>`).join("")}</div>
     ${REQ.all === "loading" ? `<p class="hint pload">Loading requests…</p>` : REQ.all && REQ.all.error ? `<p class="hint pload">Couldn't load requests.</p>`
       : shown.length ? `<div class="rlist">${shown.map(r => reqCard(r, true)).join("")}</div>` : `<p class="hint pload">No ${REQ.filter === "All" ? "" : REQ.filter.toLowerCase() + " "}requests.</p>`}`;
@@ -1843,6 +1854,12 @@ $("profBody").addEventListener("click", e => {
   }
   if (e.target.id === "prodClear") { SEAS.prod = ""; renderProfile(); return; }
   if (e.target.id === "seasRefresh") { SEAS.data = "loading"; renderProfile(); loadSeasons(true); return; }
+  const da = e.target.closest("[data-reqdelask]"); if (da) { REQ.delAsk = da.dataset.reqdelask; renderProfile(); return; }
+  if (e.target.closest("[data-reqdelno]")) { REQ.delAsk = ""; renderProfile(); return; }
+  const dy = e.target.closest("[data-reqdel]"); if (dy) { reqApi("delete", { id: dy.dataset.reqdel }).then(() => { REQ.all = REQ.all.filter(x => x.id !== dy.dataset.reqdel); REQ.mine = null; REQ.delAsk = ""; toast("Request deleted"); renderProfile(); }).catch(x => toast(x.message)); return; }
+  if (e.target.id === "reqClear") { REQ.clearAsk = true; renderProfile(); return; }
+  if (e.target.id === "reqClearNo") { REQ.clearAsk = false; renderProfile(); return; }
+  if (e.target.id === "reqClearYes") { reqApi("clear").then(j => { REQ.all = []; REQ.mine = null; REQ.clearAsk = false; toast(`${j.removed} request${j.removed === 1 ? "" : "s"} deleted`); renderProfile(); }).catch(x => toast(x.message)); return; }
   const pk = e.target.closest("[data-pickup]");
   if (pk) { pickedUp(pk); return; }
   const rf = e.target.closest("[data-rfilter]"); if (rf) { REQ.filter = rf.dataset.rfilter; renderProfile(); return; }
