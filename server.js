@@ -832,6 +832,7 @@ async function placeSuggestions(q) {
 /* ---------- order ---------- */
 const seen = new Map(); // orderId -> result (stops double submits)
 async function handleOrder(input) {
+  if (SEASON.storeOpen === false && process.env.STORE_OPEN !== "1") throw Object.assign(new Error(`Ordering opens with ${SEASON.nextSeason || "the next season"}. We'll let you know when it's ready.`), { status: 403 });
   const me = unlock(String(input.code || "").toUpperCase());
   if (!me.amc) throw Object.assign(new Error("This ambassador has no AM customer set up yet."), { status: 409 });
   const orderId = String(input.orderId || "").slice(0, 40);
