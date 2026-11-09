@@ -3,5 +3,8 @@
   "startDate": "06/01/2027",
   "storeOpen": true,
   "nextSeason": "",
-  "deadline": ""
+  "deadline": "",
+  "hideSeasons": [
+    "SUM27"
+  ]
 }

@@ -200,6 +200,7 @@ function seasonOfPo(po) {
            sort: Number(m[2]) * 10 + ({ SPR: 1, SUM: 2, FAL: 3, HOL: 4 }[m[1].toUpperCase()] || 0) };
 }
 const histCache = new Map();
+const HIDDEN_SEASONS = new Set((SEASON.hideSeasons || []).map(c => String(c).toUpperCase()));
 
 /* ---------- product photos for past-season styles (not in this season's catalog) ---------- */
 const CATALOG_IMG = (() => { try {
@@ -426,6 +427,7 @@ async function history(me, fresh = false) {
   const seasons = new Map(), pickups = readPickups();
   for (const o of rows) {
     const s = seasonOfPo(o.customer_po); if (!s) continue;
+    if (HIDDEN_SEASONS.has(s.code)) continue;               // seasons ambassadors didn't order (season.json "hideSeasons")
     if (s.test !== !!me.t) continue;                       // test link sees test orders only, ambassadors never see tests
     if (poOwner(o.customer_po) !== poOwner(me.po)) continue; // same customer AND this ambassador's PO name
     const cancelled = String(o.credit_status || "").toLowerCase() === "cancelled";
