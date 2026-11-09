@@ -205,9 +205,15 @@ const histCache = new Map();
 const CATALOG_IMG = (() => { try {
   const html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
   const data = JSON.parse(html.match(/const PRODUCTS = (\[.*?\]);\n/s)[1]);
-  return new Set(data.map(p => p.s));
+  return new Set(data.filter(p => p.imgs && /^https?:/.test(p.imgs[0] || "")).map(p => p.s));   // styles whose card already has an AM image
 } catch (e) { return new Set(); } })();
-const imgCache = new Map(); // style -> {at, url}
+const CATALOG_STYLES = (() => { try {
+  const html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
+  return JSON.parse(html.match(/const PRODUCTS = (\[.*?\]);\n/s)[1]).map(p => p.s);
+} catch (e) { return []; } })();
+const imgCache = new Map(); // style -> {at, url}  (kept on the Volume too, so a restart doesn't re-ask AM for every style)
+try { for (const [k, v] of Object.entries(JSON.parse(fs.readFileSync(path.join(process.env.DATA_DIR || (fs.existsSync("/data") ? "/data" : path.join(ROOT, "data")), "am-images.json"), "utf8")))) imgCache.set(k, v); } catch (e) {}
+function saveImgCache() { try { const d = process.env.DATA_DIR || (fs.existsSync("/data") ? "/data" : path.join(ROOT, "data")); fs.mkdirSync(d, { recursive: true }); fs.writeFileSync(path.join(d, "am-images.json"), JSON.stringify(Object.fromEntries(imgCache))); } catch (e) {} }
 function findImageUrl(obj) {
   if (!obj) return "";
   if (typeof obj === "string") return /^https?:\/\/\S+\.(jpe?g|png|webp)(\?\S*)?$/i.test(obj.trim()) ? obj.trim() : "";
@@ -232,6 +238,7 @@ async function productImages(styles) {
       imgCache.set(st, { at: Date.now(), url: r ? findImageUrl(r) : "" });
     }
   }
+  if (need.length) saveImgCache();
   return Object.fromEntries([...new Set(styles)].map(s => [s, (imgCache.get(s) || {}).url || ""]));
 }
 
@@ -1251,6 +1258,11 @@ http.createServer(async (req, res) => {
         const rows = await amGet("shipments/", [{ field: "order_id", operator: "=", value: String(body.order) }]);
         return send(res, 200, { ok: true, count: rows.length, sample: rows.slice(0, 2), tracking: findTracking(rows) });
       } catch (e) { return send(res, 502, { ok: false, error: e.message }); }
+    }
+    if (url.pathname === "/api/catalog-images") {   // AM main image for every store style (cached a day)
+      if (!AM_TOKEN) return send(res, 200, { ok: true, images: {} });
+      try { return send(res, 200, { ok: true, images: await productImages(CATALOG_STYLES) }); }
+      catch (e) { return send(res, 200, { ok: true, images: {} }); }
     }
     if (url.pathname === "/api/places") return send(res, 200, { ok: true, places: await placeSuggestions(url.searchParams.get("q")) });
     if (url.pathname === "/api/google/callback") {
