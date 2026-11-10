@@ -227,8 +227,13 @@ function findImageUrl(obj) {
   }
   return "";
 }
-async function productImages(styles) {
-  const need = [...new Set(styles)].filter(s => s && !CATALOG_IMG.has(s) && !(imgCache.has(s) && Date.now() - imgCache.get(s).at < 864e5));
+const BOOTED = Date.now(); let catalogImgJob = null;   // one AM lookup at a time, shared by everyone loading the store
+async function productImages(styles, { catalog = false } = {}) {
+  // Store styles: re-checked hourly and after every deploy, so a photo swapped in AM shows up on the site quickly.
+  // Past-season styles: a day is fine.
+  const fresh = s => { const c = imgCache.get(s); if (!c) return false;
+    return catalog ? c.at > BOOTED && Date.now() - c.at < 36e5 : Date.now() - c.at < 864e5; };
+  const need = [...new Set(styles)].filter(s => s && !CATALOG_IMG.has(s) && !fresh(s));
   for (let i = 0; i < need.length; i += 40) {
     const chunk = need.slice(i, i + 40);
     let rows = [];
@@ -1263,7 +1268,10 @@ http.createServer(async (req, res) => {
     }
     if (url.pathname === "/api/catalog-images") {   // AM main image for every store style (cached a day)
       if (!AM_TOKEN) return send(res, 200, { ok: true, images: {} });
-      try { return send(res, 200, { ok: true, images: await productImages(CATALOG_STYLES) }); }
+      try {
+        if (!catalogImgJob) catalogImgJob = productImages(CATALOG_STYLES, { catalog: true }).finally(() => { catalogImgJob = null; });
+        return send(res, 200, { ok: true, images: await catalogImgJob });
+      }
       catch (e) { return send(res, 200, { ok: true, images: {} }); }
     }
     if (url.pathname === "/api/places") return send(res, 200, { ok: true, places: await placeSuggestions(url.searchParams.get("q")) });
