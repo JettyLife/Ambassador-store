@@ -390,7 +390,11 @@ body.noscroll{overflow:hidden}
 .abody{border-top:1px solid var(--line);padding:12px;background:var(--tile);display:flex;flex-direction:column;gap:10px}
 /* staff layout: sidebar + main */
 .pbody.staffgrid{max-width:1200px;display:grid;grid-template-columns:300px minmax(0,1fr);gap:24px;align-items:start}
-.aside{position:static;align-self:start;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);display:flex;flex-direction:column}  /* scrolls with the page; full ambassador list, no inner scroll box */
+.aside{position:static;align-self:stretch;display:flex;flex-direction:column;gap:12px}  /* menu scrolls with the page… */
+.asidebox,.ambsec{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);display:flex;flex-direction:column}
+/* …and once the AMBASSADORS header reaches the top, the list pins there and scrolls inside its own box */
+.ambsec{position:sticky;top:calc(var(--pband-h,150px) + 12px);max-height:calc(100vh - var(--pband-h,150px) - 24px);min-height:0}
+.ambsec .alist{overflow:auto;min-height:0;flex:1}
 .asideh{padding:12px 12px 8px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
 .asideh h3{margin:0;font-family:var(--f-display);font-size:20px;text-transform:uppercase;letter-spacing:.03em}
 .asideh h3 small{font-family:var(--f-body);font-size:12px;color:var(--muted);letter-spacing:0;margin-left:4px}
@@ -473,7 +477,7 @@ body.noscroll{overflow:hidden}
 .soon p{margin:0}
 .pbody.staffgrid{grid-template-columns:240px minmax(0,1fr)}
 .staffgrid .aside{width:auto}
-@media(max-width:860px){.pbody.staffgrid{grid-template-columns:1fr}.aside{max-height:none}.aside .alist{max-height:260px;overflow:auto}
+@media(max-width:860px){.pbody.staffgrid{grid-template-columns:1fr}.aside{max-height:none}.ambsec{position:static;max-height:none}.aside .alist{max-height:260px;overflow:auto}
   .pnav{flex-direction:row;overflow-x:auto}.pnavb{white-space:nowrap}}
 /* shipping */
 .ship{display:flex;gap:10px;align-items:flex-start;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:9px 12px;margin:2px 0 4px}
@@ -692,6 +696,7 @@ body.closed .band .bar1{grid-template-columns:1fr auto}
 .ctform textarea{width:100%;border:1px solid var(--line);border-radius:var(--r);background:var(--bg);padding:10px 11px;font-size:16px;font-family:inherit;resize:vertical}
 .ctbtns{display:flex;gap:10px;align-items:center}.ctbtns .primary{flex:1}
 @media(max-width:420px){.ctform .f-postal_code{grid-column:span 4}}
+.ambsec .asideh{border-top:0}
 </style></head><body>
 <header class="top">
   <div class="band">
@@ -1340,7 +1345,7 @@ function seasonCard(s, ns){
 let ADM = { q: "", open: null, data: {} };
 const isStaff = () => !!(S.me && S.me.admin && Array.isArray(S.me.roster));
 let PTAB = "orders";
-const PTABS = [["orders","Past Orders"],["info","My Info"],["requests","Photo Gear Requests"],["upload","Upload Content"]];
+const PTABS = [["info","My Info"],["orders","Past Orders"],["requests","Photo Gear Requests"],["upload","Upload Content"]];
 const STAFF_TABS = [["seasons","Orders by Season"],["emails","Email Templates"]];
 let SEAS = { data: null, pick: null, sort: "n", prod: "" };
 const prodName = st => { const p = PRODUCTS.find(x => x.s === st); return p ? `${p.d} – ${p.c}` : ""; };
@@ -1418,12 +1423,12 @@ function profileSidebar(){
   const staff = isStaff();
   const openReq = staff && Array.isArray(REQ.all) ? REQ.all.filter(r => r.status === "Open").length : 0;
   const nav = `<nav class="pnav" aria-label="Profile">${PTABS.map(([k,l]) => `<button type="button" class="pnavb${!ADM.open && PTAB===k ? " on" : ""}" data-ptab="${k}">${l}${k==="requests" && openReq ? ` <small>${openReq} open</small>` : ""}</button>`).join("")}</nav>`;
-  if (!staff) return `<aside class="aside">${nav}</aside>`;
+  if (!staff) return `<aside class="aside"><div class="asidebox">${nav}</div></aside>`;
   const snav = `<nav class="pnav staffnav" aria-label="Staff">${STAFF_TABS.map(([k,l]) => `<button type="button" class="pnavb${!ADM.open && PTAB===k ? " on" : ""}" data-ptab="${k}">${l}</button>`).join("")}</nav>`;
   const q = ADM.q.toLowerCase(), pq = SEAS.prod.trim(), hits = pq ? productHits(pq) : null;
   const list = S.me.roster.filter(r => (!q || (r.n + " " + r.e + " " + r.amc).toLowerCase().includes(q)) && (!hits || hits.has(r.id)));
-  return `<aside class="aside">${nav}${snav}
-    <div class="asideh"><h3>Ambassadors <small>${S.me.roster.length}</small></h3>
+  return `<aside class="aside"><div class="asidebox">${nav}${snav}</div>
+    <div class="ambsec"><div class="asideh"><h3>Ambassadors <small>${S.me.roster.length}</small></h3>
       <label class="search"><span aria-hidden="true">⌕</span><input id="admQ" type="search" placeholder="Find an ambassador" value="${esc(ADM.q)}" aria-label="Find an ambassador"></label>
       <label class="search"><span aria-hidden="true">▢</span><input id="prodQ" type="search" list="prodList" placeholder="Who ordered a product?" value="${esc(SEAS.prod)}" aria-label="Filter ambassadors by product ordered"></label>
       <datalist id="prodList">${prodOptions().map(o => `<option value="${esc(o.s)}">${esc(o.label)}</option>`).join("")}</datalist>
@@ -1432,7 +1437,7 @@ function profileSidebar(){
         <span class="av">${esc(initials(r.n))}</span><span class="atx"><b>${esc(r.n)}</b>${hits && hits.get(r.id)
           ? `<small class="hitline">${hits.get(r.id).map(h => `${h.q} × ${esc(prodName(h.s) || h.d)} ${esc(h.z)} · ${esc(h.season)}`).join("<br>")}</small>`
           : `<small>${money(r.a)} · ${esc(r.amc || "No AM customer")}</small>`}</span></button>`).join("")
-        || `<p class="hint">${pq && !Array.isArray(SEAS.data) ? "Loading orders…" : "No match."}</p>`}</div>
+        || `<p class="hint">${pq && !Array.isArray(SEAS.data) ? "Loading orders…" : "No match."}</p>`}</div></div>
   </aside>`;
 }
 function seasonsHTML(seasons, ns){
