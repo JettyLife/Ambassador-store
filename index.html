@@ -390,7 +390,7 @@ body.noscroll{overflow:hidden}
 .abody{border-top:1px solid var(--line);padding:12px;background:var(--tile);display:flex;flex-direction:column;gap:10px}
 /* staff layout: sidebar + main */
 .pbody.staffgrid{max-width:1200px;display:grid;grid-template-columns:300px minmax(0,1fr);gap:24px;align-items:start}
-.aside{position:sticky;top:calc(var(--pband-h,150px) + 12px);background:var(--surface);border:1px solid var(--line);border-radius:var(--r);display:flex;flex-direction:column;max-height:calc(100vh - var(--pband-h,150px) - 40px);overflow:hidden}
+.aside{position:static;align-self:start;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);display:flex;flex-direction:column}  /* scrolls with the page; full ambassador list, no inner scroll box */
 .asideh{padding:12px 12px 8px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
 .asideh h3{margin:0;font-family:var(--f-display);font-size:20px;text-transform:uppercase;letter-spacing:.03em}
 .asideh h3 small{font-family:var(--f-body);font-size:12px;color:var(--muted);letter-spacing:0;margin-left:4px}
@@ -398,7 +398,7 @@ body.noscroll{overflow:hidden}
 .asideh .search input{width:100%}
 .aself{all:unset;cursor:pointer;margin:8px 8px 0;padding:8px 10px;border-radius:var(--r);font-weight:600;font-size:14px;border:1px dashed var(--line)}
 .aself.on{background:var(--slate);color:#fff;border-color:var(--slate)}
-.aside .alist{overflow:auto;padding:6px 8px 10px;display:flex;flex-direction:column;gap:2px;margin:0}
+.aside .alist{padding:6px 8px 10px;display:flex;flex-direction:column;gap:2px;margin:0}
 .aside .aname{all:unset;box-sizing:border-box;cursor:pointer;display:flex;align-items:center;gap:10px;padding:7px 8px;border-radius:var(--r);min-width:0}
 .aside .aname:hover{background:var(--tile)}
 .aside .aname.on{background:var(--accent-soft);box-shadow:inset 3px 0 0 var(--slate)}
@@ -407,7 +407,7 @@ body.noscroll{overflow:hidden}
 .atx{min-width:0}
 .atx b{display:block;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .atx small{display:block;font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.pmain{min-width:0}
+.pmain{min-width:0;scroll-margin-top:calc(var(--pband-h,150px) + 12px)}
 .ambh{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;padding-bottom:16px;margin-bottom:6px;border-bottom:1px solid var(--line)}
 .ambh .pwho small{color:var(--muted);text-transform:uppercase;letter-spacing:.14em;font-size:11px}
 .ambh .pwho h2{margin:2px 0 4px;font-family:var(--f-display);font-size:30px;text-transform:uppercase;line-height:1}
@@ -418,7 +418,7 @@ body.noscroll{overflow:hidden}
 .alink:hover{background:var(--slate);color:#fff}
 @media(max-width:860px){
   .pbody.staffgrid{grid-template-columns:1fr}
-  .aside{position:static;max-height:300px}
+  .aside{position:static}
 }
 /* gear requests */
 .rsec{margin-top:34px}
@@ -473,7 +473,7 @@ body.noscroll{overflow:hidden}
 .soon p{margin:0}
 .pbody.staffgrid{grid-template-columns:240px minmax(0,1fr)}
 .staffgrid .aside{width:auto}
-@media(max-width:860px){.pbody.staffgrid{grid-template-columns:1fr}.aside{max-height:none}.aside .alist{max-height:260px}
+@media(max-width:860px){.pbody.staffgrid{grid-template-columns:1fr}.aside{max-height:none}.aside .alist{max-height:260px;overflow:auto}
   .pnav{flex-direction:row;overflow-x:auto}.pnavb{white-space:nowrap}}
 /* shipping */
 .ship{display:flex;gap:10px;align-items:flex-start;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:9px 12px;margin:2px 0 4px}
@@ -682,6 +682,16 @@ body.closed .band .bar1{grid-template-columns:1fr auto}
 .rdel{font-size:12.5px;color:var(--warn)}
 .rclear{font-size:13px;color:var(--muted);margin:-2px 0 6px;text-align:right}
 .rclear .link{margin:0 0 0 6px}
+/* My Info (contact + shipping instructions from AM) */
+.ctcard{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;max-width:560px;margin-bottom:18px}
+.ctcard dl{display:grid;grid-template-columns:auto 1fr;gap:8px 16px;margin:0 0 12px;font-size:14px}
+.ctcard dt{color:var(--muted)}.ctcard dd{margin:0;overflow-wrap:anywhere}.ctcard dd.pre{white-space:pre-line}
+.ctform{display:flex;flex-direction:column;gap:12px;max-width:560px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;margin-bottom:18px}
+.ctform fieldset.ship{background:none;border:0;padding:0;margin:0}
+.ctform .f-postal_code{grid-column:span 2}.ctform .f-country{grid-column:span 6}
+.ctform textarea{width:100%;border:1px solid var(--line);border-radius:var(--r);background:var(--bg);padding:10px 11px;font-size:16px;font-family:inherit;resize:vertical}
+.ctbtns{display:flex;gap:10px;align-items:center}.ctbtns .primary{flex:1}
+@media(max-width:420px){.ctform .f-postal_code{grid-column:span 4}}
 </style></head><body>
 <header class="top">
   <div class="band">
@@ -1125,6 +1135,9 @@ function renderCart(){
         ? `<label class="f f-state"><span>${l}</span><select id="ship-state" name="state" autocomplete="shipping ${ac}">${US_STATES.map(c => `<option${(S.ship.state||"NJ")===c?" selected":""}>${c}</option>`).join("")}</select></label>`
         : `<label class="f f-${k}"><span>${l}</span><input id="ship-${k}" name="${k}" autocomplete="shipping ${ac}" ${req?"required":""} value="${esc(S.ship[k]||"")}"${k==="zip"?' inputmode="numeric" maxlength="10"':""}${k==="phone"?' type="tel"':""}></label>`).join("")}
       </fieldset>
+      <label class="fl" for="shipInstr">Shipping instructions</label>
+      <textarea id="shipInstr" placeholder="Gate code, leave at back door…">${esc(S.shipInstr ?? "")}</textarea>
+      <p class="hint" style="margin:-4px 0 10px">Saved to your account, so it's filled in next time too.</p>
       <label class="fl" for="notes">Notes (optional)</label>
       <textarea id="notes" placeholder="Fit questions, delivery instructions…">${esc(S.notes||"")}</textarea>
       <div class="note" id="formErr" hidden></div>
@@ -1173,9 +1186,27 @@ $("drawer").addEventListener("change", e => {
 });
 $("drawer").addEventListener("input", e => {
   if (e.target.id === "notes") S.notes = e.target.value;
+  else if (e.target.id === "shipInstr") S.shipInstr = e.target.value;
   else if (e.target.id && e.target.id.startsWith("ship-")) S.ship[e.target.name] = e.target.value;
 
 });
+/* Fill shipping instructions (and an empty delivery address) from the AM customer record. */
+async function prefillCheckout(){
+  let d = CT.me && CT.me.data;
+  if (d === undefined) { try { CT.me = CT.me || {}; d = await loadContact("me"); } catch (e) { return; } }
+  if (!d) return;
+  let changed = false;
+  if (S.shipInstr == null) { S.shipInstr = d.shipping_info || ""; changed = true; }
+  if (!S.ship.line1 && d.address_1) {
+    Object.assign(S.ship, { name: S.ship.name || S.me.n, line1: d.address_1, line2: d.address_2 || "", city: d.city || "",
+      state: US_STATES.includes(String(d.state).toUpperCase()) ? String(d.state).toUpperCase() : (S.ship.state || "NJ"), zip: d.postal_code || "", phone: S.ship.phone || d.phone || "" });
+    changed = true;
+  }
+  if (changed && step === "checkout") {
+    const ae = document.activeElement && document.activeElement.id;
+    if (!ae || !/^(ship-|notes|shipInstr)/.test(ae)) renderCart();
+  }
+}
 async function placeOrder(btn){
   const err = $("formErr");
   if (!METHODS[S.method]) { err.hidden=false; err.textContent = "Choose pickup or delivery."; return; }
@@ -1187,6 +1218,7 @@ async function placeOrder(btn){
   if (!CONFIG.orderEndpoint) { step = "fallback"; renderCart(); return; }
   const payload = {
     code: S.code, orderId: id, method: S.method, notes: S.notes || "",
+    ...(S.shipInstr != null ? { shipInstr: S.shipInstr } : {}),
     shipTo: S.method === "delivery" ? { ...S.ship } : null,
     lines: Object.entries(S.cart).filter(([,q]) => q > 0).map(([upc,q]) => ({ upc, qty: q }))
   };
@@ -1213,6 +1245,7 @@ async function placeOrder(btn){
   S.spentOrders = (S.spentOrders || []).concat([{ amOrderId: j.amOrderId, date: new Date().toLocaleDateString("en-US"), units: t.units, retail: t.value }]);
   setTimeout(loadSpent, 8000); PROF = null;
   S.cart = {}; store.set(K("cart"), {}); S.notes = ""; S.method = "";
+  if (CT.me && CT.me.data && S.shipInstr != null && !S.me.t) CT.me.data.shipping_info = S.shipInstr.trim();
   step = "done"; renderCart(); renderHeader();
 }
 $("drawer").addEventListener("click", e => {
@@ -1221,7 +1254,7 @@ $("drawer").addEventListener("click", e => {
   if (ds.rmu) { setQty(ds.rmu, 0); renderCart(); renderHeader(); return; }
   if (ds.inc) { setQty(ds.inc, (S.cart[ds.inc]||0) + 1); renderCart(); renderHeader(); return; }
   if (ds.dec) { setQty(ds.dec, (S.cart[ds.dec]||0) - 1); renderCart(); renderHeader(); return; }
-  if (id==="toCheckout"){ step="checkout"; renderCart(); }
+  if (id==="toCheckout"){ step="checkout"; renderCart(); prefillCheckout(); }
   else if (id==="backCart"){ step="cart"; renderCart(); }
   else if (id==="closeCart2"){ closeCart(); }
   else if (id==="placeOrder"){ placeOrder(e.target); }
@@ -1307,7 +1340,7 @@ function seasonCard(s, ns){
 let ADM = { q: "", open: null, data: {} };
 const isStaff = () => !!(S.me && S.me.admin && Array.isArray(S.me.roster));
 let PTAB = "orders";
-const PTABS = [["orders","Past Orders"],["requests","Photo Gear Requests"],["upload","Upload Content"]];
+const PTABS = [["orders","Past Orders"],["info","My Info"],["requests","Photo Gear Requests"],["upload","Upload Content"]];
 const STAFF_TABS = [["seasons","Orders by Season"],["emails","Email Templates"]];
 let SEAS = { data: null, pick: null, sort: "n", prod: "" };
 const prodName = st => { const p = PRODUCTS.find(x => x.s === st); return p ? `${p.d} – ${p.c}` : ""; };
@@ -1417,6 +1450,8 @@ function ambPanel(){
         <a class="alink" href="/#${esc(r.code)}-V" target="_blank" rel="noopener">View their store ↗</a>
         <button type="button" class="alink" data-ambrefresh="${esc(r.id)}">Refresh orders</button></div>
       <div class="linkline"><span class="code" id="lk-${esc(r.id)}">${esc(location.origin + "/#" + r.code)}</span></div></div>
+    <h3 class="psec">Contact info</h3>${contactHTML(r.id)}
+    <h3 class="psec">Orders</h3>
     ${!d ? `<p class="hint pload">Loading orders…</p>` : d.error ? `<p class="hint pload">Couldn't load orders. Try again.</p>` : seasonsHTML(d.seasons || [], "a:" + r.id)}`;
 }
 async function loadAmb(id, fresh){
@@ -1431,6 +1466,62 @@ function myPanel(){
     : PROF.error ? `<p class="hint pload">We couldn't load your order history right now. Try again in a minute.</p>`
     : seasonsHTML(PROF.seasons || []);
   return `<div class="rhead"><h3 class="psec">Past Orders</h3><button type="button" class="alink" id="histRefresh" title="Get the latest status and tracking from our system">Refresh</button></div>` + orders;
+}
+/* ===== My Info: address, phone, email, shipping instructions — read from and saved to the AM customer ===== */
+const CT = {};   // who ("me" or ambassador id) -> { data, err, edit, saving, msg }
+const CT_ADDR = [["address_1","Street address",true],["address_2","Apt, suite (optional)",false],["city","City",true],["state","State",true],["postal_code","ZIP",true],["country","Country",false]];
+async function loadContact(who, update){
+  const c = CT[who] = CT[who] || {};
+  try {
+    const r = await fetch("/api/contact", { method:"POST", headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ code: S.code, ...(who !== "me" ? { as: who } : {}), ...(update ? { update } : {}) }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.ok) throw new Error(j.error || "We couldn't load this right now. Try again in a minute.");
+    c.data = j.contact; c.err = ""; return j.contact;
+  } catch (e) { if (!update) c.err = e.message; throw e; }
+}
+function addrLines(d){ return [d.address_1, d.address_2, [d.city, d.state].filter(Boolean).join(", ") + (d.postal_code ? " " + d.postal_code : ""), d.country && !/^(us|usa|united states)$/i.test(d.country) ? d.country : ""].map(x => (x||"").trim()).filter(Boolean); }
+function contactHTML(who){
+  const c = CT[who];
+  if (!c || (!c.data && !c.err)) { if (!c) { CT[who] = {}; loadContact(who).catch(()=>{}).finally(renderProfile); } return `<p class="hint pload">Loading…</p>`; }
+  if (c.err && !c.data) return `<p class="hint pload">${esc(c.err)}</p>`;
+  if (c.data === null) return `<p class="hint pload">No AM customer is set up for this ambassador yet.</p>`;
+  const d = c.data;
+  if (c.edit) return `<form class="ctform" data-ctform="${esc(who)}" novalidate>
+      <fieldset class="ship"><legend class="fl">Address</legend>
+      ${CT_ADDR.map(([k,l,req]) => k === "state"
+        ? `<label class="f f-state"><span>${l}</span><input name="state" value="${esc(d.state)}" autocomplete="address-level1" maxlength="30" required></label>`
+        : `<label class="f f-${k}"><span>${l}</span><input name="${k}" value="${esc(d[k])}" ${req?"required":""}${k==="postal_code"?' inputmode="numeric" maxlength="12"':""}></label>`).join("")}
+      </fieldset>
+      <label class="f"><span>Phone</span><input name="phone" type="tel" value="${esc(d.phone)}" autocomplete="tel"></label>
+      <label class="f"><span>Email</span><input name="email" type="email" value="${esc(d.email)}" autocomplete="email" required></label>
+      <label class="f"><span>Shipping instructions</span><textarea name="shipping_info" rows="3" placeholder="Gate code, leave at back door…">${esc(d.shipping_info)}</textarea></label>
+      ${c.msg ? `<div class="note">${esc(c.msg)}</div>` : ""}
+      <div class="ctbtns"><button type="submit" class="primary"${c.saving?" disabled":""}>${c.saving?"Saving…":"Save"}</button><button type="button" class="ghost" data-ctcancel="${esc(who)}">Cancel</button></div>
+    </form>`;
+  const a = addrLines(d);
+  return `<div class="ctcard"><dl>
+      <dt>Address</dt><dd>${a.length ? a.map(esc).join("<br>") : `<span class="hint">Not on file</span>`}</dd>
+      <dt>Phone</dt><dd>${d.phone ? esc(d.phone) : `<span class="hint">Not on file</span>`}</dd>
+      <dt>Email</dt><dd>${d.email ? esc(d.email) : `<span class="hint">Not on file</span>`}</dd>
+      <dt>Shipping instructions</dt><dd class="pre">${d.shipping_info ? esc(d.shipping_info) : `<span class="hint">None</span>`}</dd></dl>
+    ${c.msg ? `<p class="hint">${esc(c.msg)}</p>` : ""}
+    <button type="button" class="alink" data-ctedit="${esc(who)}">Edit</button></div>`;
+}
+function infoPanel(){
+  return `<div class="rhead"><h3 class="psec">My Info</h3></div>
+    <p class="hint">This is what we have on file to send your gear. If anything's changed, update it here.</p>` + contactHTML("me");
+}
+async function saveContact(form){
+  const who = form.dataset.ctform, c = CT[who], fd = new FormData(form), up = {};
+  for (const [k, v] of fd.entries()) up[k] = String(v);
+  const miss = CT_ADDR.filter(([k,,req]) => req && !up[k].trim()).map(([,l]) => l.toLowerCase());
+  if (!up.email.trim()) miss.push("email");
+  if (miss.length) { c.data = { ...c.data, ...up }; c.msg = "Please add your " + miss.join(", ") + "."; renderProfile(); return; }
+  c.saving = true; c.msg = ""; c.data = { ...c.data, ...up }; renderProfile();
+  try { await loadContact(who, up); c.edit = false; c.msg = "Saved. Thanks!"; toast("Info updated"); }
+  catch (e) { c.msg = e.message; }
+  c.saving = false; renderProfile();
 }
 /* ===== Upload Content (to Jetty's Google Drive) ===== */
 let UP = { list: null, enabled: true, staffList: null, open: false, f: { photo: false, video: false, product: "" }, files: [], err: "", busy: false, prog: {}, result: null };
@@ -1809,6 +1900,7 @@ function renderProfile(){
   const main = ADM.open && staff ? ambPanel()
     : PTAB === "requests" ? (staff ? staffRequestsPanel() : requestsSection())
     : PTAB === "upload" ? uploadPanel()
+    : PTAB === "info" ? infoPanel()
     : PTAB === "seasons" && staff ? seasonsPanel()
     : PTAB === "emails" && staff ? emailsPanel()
     : myPanel();
@@ -1832,7 +1924,10 @@ $("profBody").addEventListener("input", e => {
   ADM.q = e.target.value; const pos = e.target.selectionStart; renderProfile();
   const q = $("admQ"); if (q) { q.focus(); q.setSelectionRange(pos, pos); }
 });
-$("profBody").addEventListener("submit", e => { if (e.target.id === "reqForm") { e.preventDefault(); submitRequest(); } });
+$("profBody").addEventListener("submit", e => {
+  if (e.target.id === "reqForm") { e.preventDefault(); submitRequest(); }
+  if (e.target.dataset && e.target.dataset.ctform) { e.preventDefault(); saveContact(e.target); }
+});
 $("profBody").addEventListener("change", async e => {
   if (e.target.id === "em-sample") { EM.sample = e.target.value; loadPreview(); return; }
   if (e.target.dataset && e.target.dataset.pick) { e.target.checked ? EM.picked.add(e.target.dataset.pick) : EM.picked.delete(e.target.dataset.pick);
@@ -1853,6 +1948,8 @@ $("profBody").addEventListener("click", e => {
     if (!UPOPT.loaded) loadUpOptions().then(() => { if (UP.open && !UP.busy) { readUp(); renderUpModal(); } }); return; }
   if (e.target.id === "rq-open") { REQ.form = true; REQ.done = false; REQ.err = ""; renderProfile(); setTimeout(() => $("rq-location")?.focus(), 30); return; }
   if (e.target.id === "rq-cancel") { readDraft(); REQ.form = false; REQ.err = ""; renderProfile(); return; }
+  const ce = e.target.closest("[data-ctedit]"); if (ce) { const c = CT[ce.dataset.ctedit]; c.edit = true; c.msg = ""; renderProfile(); return; }
+  const cc = e.target.closest("[data-ctcancel]"); if (cc) { const w = cc.dataset.ctcancel; CT[w] = {}; loadContact(w).catch(()=>{}).finally(renderProfile); renderProfile(); return; }
   if (e.target.id === "histRefresh") { PROF = null; renderProfile(); loadProfile(true); return; }
   const ar = e.target.closest("[data-ambrefresh]"); if (ar) { delete ADM.data[ar.dataset.ambrefresh]; renderProfile(); loadAmb(ar.dataset.ambrefresh, true); return; }
   const sp = e.target.closest("[data-seas]"); if (sp) { SEAS.pick = sp.dataset.seas; renderProfile(); return; }
@@ -1879,10 +1976,14 @@ $("profBody").addEventListener("click", e => {
   const rf = e.target.closest("[data-rfilter]"); if (rf) { REQ.filter = rf.dataset.rfilter; renderProfile(); return; }
   const pt = e.target.closest("[data-ptab]");
   if (pt) { PTAB = pt.dataset.ptab; ADM.open = null; renderProfile();
-    if (matchMedia("(max-width:860px)").matches) document.querySelector(".pmain")?.scrollIntoView({ behavior: "smooth", block: "start" }); return; }
+    { const pm = document.querySelector(".pmain");   // picked someone far down the list: bring their profile into view
+      if (pm && (matchMedia("(max-width:860px)").matches || pm.getBoundingClientRect().top < 0)) pm.scrollIntoView({ behavior: "smooth", block: "start" }); }
+    return; }
   const am = e.target.closest("[data-amb]");
   if (am) { const id = am.dataset.amb || null; ADM.open = id; if (id && id !== "__requests" && !ADM.data[id]) loadAmb(id); renderProfile();
-    if (matchMedia("(max-width:860px)").matches) document.querySelector(".pmain")?.scrollIntoView({ behavior: "smooth", block: "start" }); return; }
+    { const pm = document.querySelector(".pmain");   // picked someone far down the list: bring their profile into view
+      if (pm && (matchMedia("(max-width:860px)").matches || pm.getBoundingClientRect().top < 0)) pm.scrollIntoView({ behavior: "smooth", block: "start" }); }
+    return; }
   const h = e.target.closest("[data-season]"); if (!h) return;
   profOpen = profOpen === h.dataset.season ? null : h.dataset.season; renderProfile();
 });

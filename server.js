@@ -397,9 +397,17 @@ async function liveTracking(t) {
 const PICK_FILE = () => path.join(DATA_DIR, "pickups.json");
 function readPickups() { try { return JSON.parse(fs.readFileSync(PICK_FILE(), "utf8")); } catch (e) { return {}; } }
 function writePickups(m) { fs.mkdirSync(DATA_DIR, { recursive: true }); const t = PICK_FILE() + ".tmp"; fs.writeFileSync(t, JSON.stringify(m, null, 1)); fs.renameSync(t, PICK_FILE()); }
+// Pickup/Delivery is written into the order notes (line 2: "Pickup - Jetty Distribution (…)" or "Delivery").
+// Older orders carried it in shipping_info, which is now the order's Shipping Instructions.
+function orderMethod(o) {
+  const n = String(o.notes || "").match(/^(Pickup - [^(\n]+?|Delivery)\s*(\(|$)/m);
+  if (n) return n[1].trim();
+  const si = String(o.shipping_info || "").split("\n")[0].trim();
+  return /^(pickup|delivery)\b/i.test(si) ? si : "";
+}
 function shipStatus(o, pickups) {
   const qty = Number(o.qty || 0) - Number(o.qty_cxl || 0), shipped = Number(o.qty_shipped || 0);
-  const pickup = /pickup/i.test(String(o.shipping_info || ""));
+  const pickup = /^pickup/i.test(orderMethod(o));
   if (pickup) {
     const p = (pickups || {})[String(o.order_id)];
     if (p) return { state: "shipped", label: "Picked up", pickup, pickedUpAt: p.at, pickedUpBy: p.by };
@@ -444,7 +452,7 @@ async function history(me, fresh = false) {
     if (!seasons.has(s.code)) seasons.set(s.code, { ...s, allowance: s.code === cur?.code ? Number(me.a) : (me.pa || {})[s.code] ?? null, orders: [] });
     const orderTrk = findTracking(Object.fromEntries(Object.entries(o).filter(([k]) => k !== "order_items")), o.ship_via || "");
     seasons.get(s.code).orders.push({ amOrderId: String(o.order_id), date: o.date || "", items, ship: shipStatus(o, pickups),
-      method: String(o.shipping_info || ""), shipVia: String(o.ship_via || ""), tracking: orderTrk,
+      method: orderMethod(o), shipVia: String(o.ship_via || ""), tracking: orderTrk,
       units: items.reduce((t, i) => t + i.qty, 0), retail: items.reduce((t, i) => t + i.qty * i.retail, 0) });
   }
   if (cur && !seasons.has(cur.code)) seasons.set(cur.code, { ...cur, allowance: Number(me.a), orders: [] });
@@ -560,7 +568,11 @@ function renderTemplate(t, amb) {
   const subject = fillTemplate(t.subject, amb), text = fillTemplate(t.body, amb);
   return { subject, text, html: emailHtml(text, `${SITE()}/#${amb.code}`) };
 }
-const ambEmails = a => String(a.e || "").split(/[,;\s]+/).filter(x => /@/.test(x));
+// When an ambassador changes their email on the site, emails go to the new address (kept in /data/email-overrides.json).
+const EMAIL_FILE = () => path.join(DATA_DIR, "email-overrides.json");
+function readEmailOverrides() { try { return JSON.parse(fs.readFileSync(EMAIL_FILE(), "utf8")); } catch (e) { return {}; } }
+function setEmailOverride(id, email) { const m = readEmailOverrides(); m[id] = email; fs.mkdirSync(DATA_DIR, { recursive: true }); fs.writeFileSync(EMAIL_FILE(), JSON.stringify(m, null, 1)); }
+const ambEmails = a => String(readEmailOverrides()[a.id] || a.e || "").split(/[,;\s]+/).filter(x => /@/.test(x));
 
 /* ---------- photoshoot gear requests ---------- */
 // Stored as JSON on disk. On Railway attach a Volume mounted at /data so requests survive redeploys.
@@ -959,6 +971,34 @@ async function placeSuggestions(q) {
   } catch (e) { return []; } finally { clearTimeout(timer); }
 }
 
+/* ---------- contact info + shipping instructions (read from / written to the AM customer; nothing stored here) ---------- */
+const CONTACT_FIELDS = { address_1: 100, address_2: 100, city: 60, state: 30, postal_code: 12, country: 40, phone: 30, email: 120, shipping_info: 1000 };
+async function amCustomer(amc) {
+  const id = await customerId(amc);
+  const rows = await amGet("customers/", [{ field: "customer_id", operator: "=", value: id }]);
+  const c = rows.find(r => String(r.customer_id) === id);
+  if (!c) throw new Error("AM customer not found");
+  return { id, c };
+}
+function contactOut(c) { return Object.fromEntries(Object.keys(CONTACT_FIELDS).map(k => [k, String(c[k] ?? "")])); }
+function cleanContact(input) {
+  const out = {};
+  for (const [k, max] of Object.entries(CONTACT_FIELDS)) if (k in (input || {})) out[k] = String(input[k] ?? "").replace(k === "shipping_info" ? /\r/g : /\s+/g, k === "shipping_info" ? "" : " ").trim().slice(0, max);
+  if ("email" in out && out.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(out.email)) throw Object.assign(new Error("That email address doesn't look right."), { status: 400 });
+  if ("state" in out && /^[a-z]{2}$/i.test(out.state)) out.state = out.state.toUpperCase();
+  return out;
+}
+async function updateContact(me, changes) {
+  const { id, c } = await amCustomer(me.amc);
+  const diff = Object.fromEntries(Object.entries(changes).filter(([k, v]) => String(c[k] ?? "") !== v));
+  if (Object.keys(diff).length) {
+    await amPut(`customers/${id}`, { customer_id: id, ...diff });
+    console.log(JSON.stringify({ event: "contact_updated", ambassador: me.n, fields: Object.keys(diff) }));
+    if (diff.email && me.id) setEmailOverride(me.id, diff.email);
+  }
+  return { ...contactOut(c), ...diff };
+}
+
 /* ---------- order ---------- */
 const seen = new Map(); // orderId -> result (stops double submits)
 async function handleOrder(input) {
@@ -974,6 +1014,7 @@ async function handleOrder(input) {
 
   const method = String(input.method || "");
   const s = input.shipTo || {};
+  const shipInstr = typeof input.shipInstr === "string" ? input.shipInstr.replace(/\r/g, "").trim().slice(0, 1000) : null;
   const notes = String(input.notes || "").slice(0, 1000);
   const header = {
     customer_id: await customerId(me.amc),
@@ -988,16 +1029,17 @@ async function handleOrder(input) {
   let fulfil;
   if (PICKUP[method]) {
     fulfil = `${PICKUP[method].label} (${PICKUP[method].addr})`;
-    header.shipping_info = PICKUP[method].label;
   } else if (method === "delivery") {
     for (const k of ["name", "line1", "city", "zip"]) if (!String(s[k] || "").trim()) throw Object.assign(new Error("Delivery address is incomplete."), { status: 400 });
     Object.assign(header, {
       name: String(s.name).slice(0, 100), address_1: String(s.line1).slice(0, 100), address_2: String(s.line2 || "").slice(0, 100),
       city: String(s.city).slice(0, 60), state: stateCode(s.state), postal_code: String(s.zip).slice(0, 12),
-      country: "USA", phone: String(s.phone || "").slice(0, 30), shipping_info: "Delivery",
+      country: "USA", phone: String(s.phone || "").slice(0, 30),
     });
     fulfil = "Delivery";
   } else throw Object.assign(new Error("Choose pickup or delivery."), { status: 400 });
+
+  if (shipInstr !== null) header.shipping_info = shipInstr;   // the order's Shipping Instructions field (pickup/delivery is in the notes)
 
   const retail = lines.reduce((t, l) => t + l.qty * CATALOG[l.upc].p, 0);
   let before = null;
@@ -1025,6 +1067,11 @@ async function handleOrder(input) {
   if (amOrderId && String(created?.credit_status || "") !== header.credit_status) {
     try { await amPut(`orders/${amOrderId}`, { order_id: String(amOrderId), credit_status: header.credit_status }); }
     catch (e) { console.error(JSON.stringify({ event: "credit_status_update_failed", amOrderId, want: header.credit_status, error: e.message })); }
+  }
+  // Keep the AM customer's Shipping Instructions in step with what they typed at checkout.
+  if (shipInstr !== null && !me.t) {
+    try { await updateContact(me, { shipping_info: shipInstr }); }
+    catch (e) { console.error(JSON.stringify({ event: "ship_instr_sync_failed", ambassador: me.n, error: e.message })); }
   }
   const units = lines.reduce((t, l) => t + l.qty, 0);
   if (!recent.has(ambKey(me))) recent.set(ambKey(me), []);
@@ -1089,6 +1136,27 @@ http.createServer(async (req, res) => {
       } catch (e) {
         console.error(JSON.stringify({ event: "spent_error", error: e.message }));
         return send(res, e.message === "bad_code" || e.code === "ENOENT" ? 403 : 502, { ok: false });
+      }
+    }
+    if (req.method === "POST" && url.pathname === "/api/contact") {   // {code, as?, update?}
+      if (!AM_TOKEN) return send(res, 503, { ok: false, error: "Not connected to our system yet." });
+      let raw = ""; for await (const c of req) { raw += c; if (raw.length > 8000) return send(res, 413, { ok: false }); }
+      try {
+        const body = JSON.parse(raw);
+        let me = unlock(String(body.code || "").toUpperCase());
+        if (body.as) {
+          if (!me.admin || !Array.isArray(me.roster)) return send(res, 403, { ok: false });
+          const who = me.roster.find(r => r.id === String(body.as));
+          if (!who) return send(res, 404, { ok: false });
+          me = { id: who.id, n: who.n, amc: who.amc, t: who.t };
+        }
+        if (!me.amc) return send(res, 200, { ok: true, contact: null });
+        if (body.update && me.t) return send(res, 400, { ok: false, error: "Test accounts can't change AM customer info." });
+        if (body.update) return send(res, 200, { ok: true, contact: await updateContact(me, cleanContact(body.update)) });
+        return send(res, 200, { ok: true, contact: contactOut((await amCustomer(me.amc)).c) });
+      } catch (e) {
+        console.error(JSON.stringify({ event: "contact_error", error: e.message }));
+        return send(res, e.status || (e.message === "bad_code" || e.code === "ENOENT" ? 403 : 502), { ok: false, error: e.status ? e.message : "We couldn't reach our system. Try again in a minute." });
       }
     }
     if (req.method === "POST" && url.pathname === "/api/history") {
