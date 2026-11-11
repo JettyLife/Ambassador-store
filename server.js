@@ -537,6 +537,12 @@ function readTemplates() {
   return { templates: Array.isArray(d.templates) && d.templates.length ? d.templates : DEFAULT_TEMPLATES.map(t => ({ ...t })), sends: Array.isArray(d.sends) ? d.sends : [] };
 }
 function writeTemplates(d) { writeJson(TPL_FILE(), { templates: d.templates, sends: d.sends.slice(-200) }); }
+// Attachments: files kept on the Volume (/data/email-attachments/<id>), listed on the template as {id, name, type, size}.
+const ATT_DIR = () => path.join(DATA_DIR, "email-attachments");
+const ATT_MAX_TOTAL = 18 * 1024 * 1024;   // Gmail's limit is 25 MB per email; attachments grow about a third when sent
+const attPath = id => path.join(ATT_DIR(), String(id).replace(/[^a-z0-9]/gi, ""));
+function attFiles(t) { return (t.attachments || []).map(a => { try { return { ...a, data: fs.readFileSync(attPath(a.id)) }; } catch (e) { return null; } }).filter(Boolean); }
+function dropAtts(list) { for (const a of list || []) { try { fs.unlinkSync(attPath(a.id)); } catch (e) {} } }
 const PLACEHOLDERS = ["first_name", "name", "link", "password", "allowance", "season", "next_season", "deadline", "contact_name"];
 function fillTemplate(str, amb, extra = {}) {
   const v = { first_name: String(amb.n || "").replace(/[“"].*?[”"]\s*/g, "").split(" ")[0], name: amb.n, link: `${SITE()}/#${amb.code}`,
@@ -707,16 +713,22 @@ async function mailToken() {
   return mTok.token;
 }
 const hdr = v => /[^\x20-\x7e]/.test(v) ? "=?UTF-8?B?" + Buffer.from(v).toString("base64") + "?=" : v;
-async function sendMail({ to, subject, text, html, replyTo }) {
-  const from = mailSaved()?.email || MAIL_FROM, b = "jasmail" + crypto.randomBytes(6).toString("hex");
-  const msg = [
-    `From: ${hdr("Jetty Ambassador")} <${from}>`, `To: ${[].concat(to).join(", ")}`, ...(replyTo ? [`Reply-To: ${replyTo}`] : []),
-    `Subject: ${hdr(subject)}`, "MIME-Version: 1.0", `Content-Type: multipart/alternative; boundary="${b}"`, "",
-    `--${b}`, "Content-Type: text/plain; charset=UTF-8", "Content-Transfer-Encoding: base64", "", Buffer.from(text).toString("base64"),
-    `--${b}`, "Content-Type: text/html; charset=UTF-8", "Content-Transfer-Encoding: base64", "", Buffer.from(html || text).toString("base64"), `--${b}--`,
-  ].join("\r\n");
-  const r = await fetch((process.env.GMAIL_API_BASE || "https://gmail.googleapis.com/") + "gmail/v1/users/me/messages/send", {
-    method: "POST", headers: { Authorization: "Bearer " + await mailToken(), "Content-Type": "application/json" }, body: JSON.stringify({ raw: Buffer.from(msg).toString("base64url") }) });
+const b64lines = buf => Buffer.from(buf).toString("base64").replace(/.{76}/g, "$&\r\n");
+async function sendMail({ to, subject, text, html, replyTo, attachments = [] }) {
+  const from = mailSaved()?.email || MAIL_FROM, b = "jasmail" + crypto.randomBytes(6).toString("hex"), mx = "jasmix" + crypto.randomBytes(6).toString("hex");
+  const alt = [
+    `--${b}`, "Content-Type: text/plain; charset=UTF-8", "Content-Transfer-Encoding: base64", "", b64lines(text),
+    `--${b}`, "Content-Type: text/html; charset=UTF-8", "Content-Transfer-Encoding: base64", "", b64lines(html || text), `--${b}--`];
+  const head = [`From: ${hdr("Jetty Ambassador")} <${from}>`, `To: ${[].concat(to).join(", ")}`, ...(replyTo ? [`Reply-To: ${replyTo}`] : []),
+    `Subject: ${hdr(subject)}`, "MIME-Version: 1.0"];
+  const msg = (attachments.length
+    ? [...head, `Content-Type: multipart/mixed; boundary="${mx}"`, "", `--${mx}`, `Content-Type: multipart/alternative; boundary="${b}"`, "", ...alt,
+       ...attachments.flatMap(a => [`--${mx}`, `Content-Type: ${a.type || "application/octet-stream"}; name="${hdr(a.name)}"`,
+         `Content-Disposition: attachment; filename="${hdr(a.name)}"`, "Content-Transfer-Encoding: base64", "", b64lines(a.data)]), `--${mx}--`]
+    : [...head, `Content-Type: multipart/alternative; boundary="${b}"`, "", ...alt]).join("\r\n");
+  // Media upload takes messages up to 35 MB (the plain JSON send is limited to a few MB).
+  const r = await fetch((process.env.GMAIL_API_BASE || "https://gmail.googleapis.com/") + "upload/gmail/v1/users/me/messages/send?uploadType=media", {
+    method: "POST", headers: { Authorization: "Bearer " + await mailToken(), "Content-Type": "message/rfc822" }, body: msg });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(`Gmail ${r.status}: ${JSON.stringify(j.error || j).slice(0, 300)}`);
   return j.id;
@@ -1243,6 +1255,26 @@ http.createServer(async (req, res) => {
           error: staff ? "Upload setup problem: " + explainDrive(e.message) : "The upload couldn't be set up. Try again in a minute." });
       }
     }
+    if (req.method === "POST" && url.pathname === "/api/email-attach") {   // raw file body; X-Jas-Code header; ?tpl=&name=
+      try {
+        const me = unlock(String(req.headers["x-jas-code"] || "").toUpperCase());
+        if (!me.admin) return send(res, 403, { ok: false });
+        const d = readTemplates(), t = d.templates.find(x => x.id === url.searchParams.get("tpl"));
+        if (!t) return send(res, 404, { ok: false, error: "Save the template first, then add files." });
+        const used = (t.attachments || []).reduce((n, a) => n + (a.size || 0), 0), chunks = []; let size = 0;
+        for await (const c of req) { size += c.length; if (used + size > ATT_MAX_TOTAL) return send(res, 413, { ok: false, error: "Attachments on one email can add up to 18 MB at most." }); chunks.push(c); }
+        if (!size) return send(res, 400, { ok: false, error: "That file is empty." });
+        const name = clip(String(url.searchParams.get("name") || "file").replace(/[\r\n"\\/]/g, " "), 150) || "file";
+        const att = { id: crypto.randomBytes(9).toString("hex"), name, type: clip(String(req.headers["content-type"] || "application/octet-stream"), 100), size };
+        fs.mkdirSync(ATT_DIR(), { recursive: true }); fs.writeFileSync(attPath(att.id), Buffer.concat(chunks));
+        t.attachments = (t.attachments || []).concat(att); writeTemplates(d);
+        console.log(JSON.stringify({ event: "email_attachment_added", template: t.name, file: name, size }));
+        return send(res, 200, { ok: true, attachments: t.attachments });
+      } catch (e) {
+        console.error(JSON.stringify({ event: "email_attach_error", error: e.message }));
+        return send(res, e.message === "bad_code" || e.code === "ENOENT" ? 403 : 500, { ok: false, error: "Couldn't add that file. Try again." });
+      }
+    }
     if (req.method === "POST" && url.pathname.startsWith("/api/emails/")) {
       let raw = ""; for await (const c of req) { raw += c; if (raw.length > 300000) return send(res, 413, { ok: false }); }
       try {
@@ -1260,9 +1292,14 @@ http.createServer(async (req, res) => {
           Object.assign(cur, { name, subject, body: text, updated: new Date().toISOString() });
           writeTemplates(d); return send(res, 200, { ok: true, template: cur });
         }
-        if (action === "delete") { d.templates = d.templates.filter(x => x.id !== body.id); if (!d.templates.length) d.templates = DEFAULT_TEMPLATES.map(t => ({ ...t })); writeTemplates(d); return send(res, 200, { ok: true }); }
+        if (action === "delete") { dropAtts((d.templates.find(x => x.id === body.id) || {}).attachments); d.templates = d.templates.filter(x => x.id !== body.id); if (!d.templates.length) d.templates = DEFAULT_TEMPLATES.map(t => ({ ...t })); writeTemplates(d); return send(res, 200, { ok: true }); }
         if (action === "reset") { const def = DEFAULT_TEMPLATES.find(x => x.id === body.id); if (!def) return send(res, 404, { ok: false });
-          const i = d.templates.findIndex(x => x.id === body.id); if (i >= 0) d.templates[i] = { ...def }; else d.templates.push({ ...def }); writeTemplates(d); return send(res, 200, { ok: true, template: def }); }
+          const i = d.templates.findIndex(x => x.id === body.id); if (i >= 0) d.templates[i] = { ...def, attachments: d.templates[i].attachments || [] }; else d.templates.push({ ...def }); writeTemplates(d); return send(res, 200, { ok: true, template: def }); }
+        if (action === "detach") {
+          const t = d.templates.find(x => x.id === body.id); if (!t) return send(res, 404, { ok: false });
+          dropAtts((t.attachments || []).filter(a => a.id === body.attId)); t.attachments = (t.attachments || []).filter(a => a.id !== body.attId);
+          writeTemplates(d); return send(res, 200, { ok: true, attachments: t.attachments });
+        }
         if (action === "preview") {
           const t = body.template || d.templates.find(x => x.id === body.id); if (!t) return send(res, 404, { ok: false });
           return send(res, 200, { ok: true, to: ambEmails(sample), name: sample.n, ...renderTemplate(t, sample) });
@@ -1272,16 +1309,16 @@ http.createServer(async (req, res) => {
           const t = d.templates.find(x => x.id === body.id); if (!t) return send(res, 404, { ok: false, error: "Save the template first." });
           if (body.test) {     // test: rendered for one ambassador but delivered to the given address (default: the sender)
             const to = clip(body.testTo || mailSaved()?.email || MAIL_FROM, 200); const m = renderTemplate(t, sample);
-            await sendMail({ to, subject: "[TEST] " + m.subject, text: m.text, html: m.html }); return send(res, 200, { ok: true, test: true, to });
+            await sendMail({ to, subject: "[TEST] " + m.subject, text: m.text, html: m.html, attachments: attFiles(t) }); return send(res, 200, { ok: true, test: true, to });
           }
           const ids = new Set(Array.isArray(body.ambassadorIds) ? body.ambassadorIds : []);
           const targets = roster.filter(r => ids.has(r.id));
           if (!targets.length) return send(res, 400, { ok: false, error: "Pick at least one ambassador." });
-          const results = [];
+          const results = [], files = attFiles(t);
           for (const a of targets) {          // one email per ambassador, each with only their own link
             const to = ambEmails(a);
             if (!to.length) { results.push({ id: a.id, n: a.n, ok: false, error: "no email on file" }); continue; }
-            try { const m = renderTemplate(t, a); await sendMail({ to, subject: m.subject, text: m.text, html: m.html }); results.push({ id: a.id, n: a.n, ok: true }); }
+            try { const m = renderTemplate(t, a); await sendMail({ to, subject: m.subject, text: m.text, html: m.html, attachments: files }); results.push({ id: a.id, n: a.n, ok: true }); }
             catch (e) { results.push({ id: a.id, n: a.n, ok: false, error: e.message.slice(0, 160) }); }
             await new Promise(r => setTimeout(r, 250));
           }

@@ -698,6 +698,11 @@ body.closed .band .bar1{grid-template-columns:1fr auto}
 @media(max-width:420px){.ctform .f-postal_code{grid-column:span 4}}
 .ambsec .asideh{border-top:0}
 .duepill{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:#fff;background:var(--slate);border-radius:999px;padding:4px 11px;white-space:nowrap}.duepill b{font-weight:700;letter-spacing:.02em}
+.ematt{display:flex;flex-direction:column;gap:6px;margin:4px 0 10px}
+.ematt ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+.ematt li{display:flex;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:6px 10px;font-size:13.5px}
+.ematt li .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ematt li small{color:var(--muted)}
+.ematt .attbtn{align-self:flex-start;cursor:pointer}
 </style></head><body>
 <header class="top">
   <div class="band">
@@ -1143,7 +1148,7 @@ function renderCart(){
         : `<label class="f f-${k}"><span>${l}</span><input id="ship-${k}" name="${k}" autocomplete="shipping ${ac}" ${req?"required":""} value="${esc(S.ship[k]||"")}"${k==="zip"?' inputmode="numeric" maxlength="10"':""}${k==="phone"?' type="tel"':""}></label>`).join("")}
       </fieldset>
       <label class="fl" for="shipInstr">Shipping instructions</label>
-      <textarea id="shipInstr" placeholder="Gate code, leave at back door…">${esc(S.shipInstr ?? "")}</textarea>
+      <textarea id="shipInstr" placeholder="Anything we should know about shipping your order">${esc(S.shipInstr ?? "")}</textarea>
       <p class="hint" style="margin:-4px 0 10px">Saved to your account, so it's filled in next time too.</p>
       <label class="fl" for="notes">Notes (optional)</label>
       <textarea id="notes" placeholder="Fit questions, delivery instructions…">${esc(S.notes||"")}</textarea>
@@ -1502,7 +1507,7 @@ function contactHTML(who){
       </fieldset>
       <label class="f"><span>Phone</span><input name="phone" type="tel" value="${esc(d.phone)}" autocomplete="tel"></label>
       <label class="f"><span>Email</span><input name="email" type="email" value="${esc(d.email)}" autocomplete="email" required></label>
-      <label class="f"><span>Shipping instructions</span><textarea name="shipping_info" rows="3" placeholder="Gate code, leave at back door…">${esc(d.shipping_info)}</textarea></label>
+      <label class="f"><span>Shipping instructions</span><textarea name="shipping_info" rows="3" placeholder="Anything we should know about shipping your order">${esc(d.shipping_info)}</textarea></label>
       ${c.msg ? `<div class="note">${esc(c.msg)}</div>` : ""}
       <div class="ctbtns"><button type="submit" class="primary"${c.saving?" disabled":""}>${c.saving?"Saving…":"Save"}</button><button type="button" class="ghost" data-ctcancel="${esc(who)}">Cancel</button></div>
     </form>`;
@@ -1937,6 +1942,7 @@ $("profBody").addEventListener("submit", e => {
 });
 $("profBody").addEventListener("change", async e => {
   if (e.target.id === "em-sample") { EM.sample = e.target.value; loadPreview(); return; }
+  if (e.target.id === "em-files") { const fs = [...e.target.files]; e.target.value = ""; if (fs.length) addAttachments(fs); return; }
   if (e.target.dataset && e.target.dataset.pick) { e.target.checked ? EM.picked.add(e.target.dataset.pick) : EM.picked.delete(e.target.dataset.pick);
     const h = document.querySelector(".pmain h3.psec small"); renderProfile(); return; }
   if (e.target.id === "rq-otherchk") { const o = $("rq-other"); o.hidden = !e.target.checked; if (e.target.checked) o.focus(); return; }
@@ -1944,7 +1950,7 @@ $("profBody").addEventListener("change", async e => {
   if (st) { try { const j = await reqApi("status", { id: st.dataset.req, status: st.value }); const r = REQ.all.find(x => x.id === j.request.id); if (r) r.status = j.request.status; toast("Status updated"); } catch (x) { toast(x.message); } renderProfile(); }
 });
 $("profBody").addEventListener("click", e => {
-  if (PTAB === "emails" && !ADM.open && e.target.closest("[data-tpl],[data-ph],[data-emf],#emNew,#emSave,#emReset,#emDelete,#emAll,#emNone,#emSend,#emCancel,#emTest,#emGo")) { emClick(e); return; }
+  if (PTAB === "emails" && !ADM.open && e.target.closest("[data-tpl],[data-ph],[data-emf],[data-detach],#emNew,#emSave,#emReset,#emDelete,#emAll,#emNone,#emSend,#emCancel,#emTest,#emGo")) { emClick(e); return; }
   if (e.target.id === "slack-test") { e.target.disabled = true; e.target.textContent = "Sending…";
     reqApi("slack-test").then(() => toast("Test message sent to Slack")).catch(x => toast(x.message)).finally(() => { e.target.disabled = false; e.target.textContent = "Send test message"; }); return; }
   if (e.target.id === "mail-connect") { e.target.disabled = true; reqApi("email-connect").then(j => { location.href = j.url; }).catch(x => { toast(x.message); e.target.disabled = false; }); return; }
@@ -2057,7 +2063,7 @@ function loadPreview(){
 function previewHTML(){
   const pv = EM.preview;
   return `<div class="empv" id="emPreview">${!pv ? `<p class="hint">Loading preview…</p>` : pv.error ? `<p class="hint">${esc(pv.error)}</p>`
-    : `<div class="empvh"><div><small>To</small> ${esc(pv.name)} &lt;${esc((pv.to || []).join(", ") || "no email on file")}&gt;</div><div><small>Subject</small> <b>${esc(pv.subject)}</b></div></div><div class="empvb">${pv.html}</div>`}</div>`;
+    : `<div class="empvh"><div><small>To</small> ${esc(pv.name)} &lt;${esc((pv.to || []).join(", ") || "no email on file")}&gt;</div><div><small>Subject</small> <b>${esc(pv.subject)}</b></div>${(EM.draft && EM.draft.attachments || []).length ? `<div><small>Attached</small> ${EM.draft.attachments.map(a => esc(a.name)).join(", ")}</div>` : ""}</div><div class="empvb">${pv.html}</div>`}</div>`;
 }
 function emRecipients(){
   const roster = S.me.roster || [], q = EM.q.toLowerCase();
@@ -2087,6 +2093,7 @@ function emailsPanel(){
         <label class="f"><span>Message</span><textarea id="em-body" rows="14">${esc(t.body || "")}</textarea></label>
         <div class="emph">Insert: ${d.placeholders.map(k => `<button type="button" data-ph="${k}">{${k}}</button>`).join("")}</div>
         <p class="hint">{link} is each ambassador's own personal link. On a line by itself it becomes a button. Lines starting with "- " become bullets.</p>
+        ${attachHTML(t)}
         <div class="rbtns"><button type="button" class="primary small" id="emSave"${EM.dirty ? "" : " disabled"}>${EM.dirty ? "Save changes" : "Saved"}</button>
           ${["welcome","order-time","content"].includes(t.id) ? `<button type="button" class="link" id="emReset">Reset to original</button>` : `<button type="button" class="link" id="emDelete">Delete template</button>`}</div>
         <h3 class="psec">Preview</h3>
@@ -2112,6 +2119,30 @@ function emailsPanel(){
       </div>
     </div>`;
 }
+const fmtSize = n => n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB";
+function attachHTML(t){
+  const list = t.attachments || [], total = list.reduce((n, a) => n + (a.size || 0), 0);
+  return `<div class="ematt"><span class="fl">Attachments</span>
+    ${list.length ? `<ul>${list.map(a => `<li><span class="nm">📎 ${esc(a.name)}</span><small>${fmtSize(a.size || 0)}</small><button type="button" class="link" data-detach="${esc(a.id)}">Remove</button></li>`).join("")}</ul>` : ""}
+    ${!t.id ? `<p class="hint">Save the template first, then add files.</p>`
+      : EM.uploading ? `<p class="hint">Adding ${esc(EM.uploading)}…</p>`
+      : `<label class="alink attbtn">+ Add files<input type="file" id="em-files" multiple hidden></label>
+         <small class="hint">${list.length ? `${fmtSize(total)} of 18 MB used. ` : ""}Sent with every email from this template.</small>`}</div>`;
+}
+async function addAttachments(files){
+  for (const f of files) {
+    EM.uploading = f.name; renderProfile();
+    try {
+      const r = await fetch(`/api/email-attach?tpl=${encodeURIComponent(EM.sel)}&name=${encodeURIComponent(f.name)}`,
+        { method: "POST", headers: { "X-Jas-Code": S.code, "Content-Type": f.type || "application/octet-stream" }, body: f });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) throw new Error(j.error || "Couldn't add " + f.name);
+      setAtts(j.attachments); toast("Added " + f.name);
+    } catch (e) { toast(e.message); break; }
+  }
+  EM.uploading = ""; renderProfile();
+}
+function setAtts(list){ EM.draft.attachments = list; const t = EM.data.templates.find(x => x.id === EM.sel); if (t) t.attachments = list; }
 function readEm(){ if (!$("em-name")) return; EM.draft = { ...EM.draft, name: $("em-name").value, subject: $("em-subject").value, body: $("em-body").value }; }
 async function emClick(e){
   const id = e.target.id;
@@ -2119,6 +2150,8 @@ async function emClick(e){
   const ph = e.target.closest("[data-ph]");
   if (ph) { const ta = $("em-body"); const ins = "{" + ph.dataset.ph + "}"; const s = ta.selectionStart ?? ta.value.length;
     ta.value = ta.value.slice(0, s) + ins + ta.value.slice(ta.selectionEnd ?? s); ta.focus(); ta.setSelectionRange(s + ins.length, s + ins.length); readEm(); EM.dirty = true; markDirty(); loadPreview(); return true; }
+  const dt = e.target.closest("[data-detach]");
+  if (dt) { try { const j = await emApi("detach", { id: EM.sel, attId: dt.dataset.detach }); setAtts(j.attachments); toast("Removed"); renderProfile(); } catch (x) { toast(x.message); } return true; }
   const ef = e.target.closest("[data-emf]"); if (ef) { EM.filter = ef.dataset.emf; renderProfile(); return true; }
   if (id === "emNew") { EM.sel = null; EM.draft = { id: "", name: "New template", subject: "", body: "Hi {first_name},\n\n\n\n{link}\n\nThanks,\nJon" }; EM.dirty = true; EM.preview = null; renderProfile(); loadPreview(); return true; }
   if (id === "emSave") { readEm(); try { const j = await emApi("save", { template: EM.draft }); EM.dirty = false; toast("Template saved"); await loadEmails(j.template.id); } catch (x) { toast(x.message); } return true; }
