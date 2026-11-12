@@ -69,7 +69,7 @@ const PICKUP = {
 function fileIdFor(code) {
   return crypto.createHash("sha256").update("jetty-amb:" + code).digest("hex").slice(0, 20);
 }
-function unlock(code) {
+function legacyUnlock(code) {   // the old per-person files in a/ (still used for Jetty Admin, test accounts and to carry over existing links)
   if (!/^[A-Z0-9]{8,32}$/.test(code)) throw new Error("bad_code");
   const blob = JSON.parse(fs.readFileSync(path.join(ROOT, "a", fileIdFor(code) + ".json"), "utf8"));
   const key = crypto.pbkdf2Sync(code, Buffer.from(blob.s, "base64"), blob.k, 32, "sha256");
@@ -489,6 +489,7 @@ async function history(me, fresh = false) {
                       SLACK_NOTIFY (optional) which events, default "requests,uploads,pending"; add "orders" for every order */
 const SLACK_URL = process.env.SLACK_WEBHOOK_URL || "";
 const SLACK_ON = new Set((process.env.SLACK_NOTIFY || "requests,uploads,pending").split(",").map(x => x.trim().toLowerCase()).filter(Boolean));
+if (!/(^|,)\s*-exchanges/.test(process.env.SLACK_NOTIFY || "")) SLACK_ON.add("exchanges");   // Flagship exchanges always ping (add "-exchanges" to SLACK_NOTIFY to stop)
 const SITE = () => process.env.PUBLIC_URL || "https://jettyambassador.up.railway.app";
 const slackEsc = v => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 async function postSlack(text, blocks) {
@@ -500,7 +501,7 @@ async function postSlack(text, blocks) {
 // Who gets @-mentioned per alert. Railway variable SLACK_MENTIONS overrides, e.g.
 // "requests:U0C9M2Q15GC;uploads:U0C9M2Q15GC;pending:U0C9M2Q15GC,UM3REF944;orders:" (Slack member IDs; Jon = U0C9M2Q15GC, Arlynn = U0BPU0W4BCK, Jerm = U4UAC501F, Tyler = UM3REF944)
 const SLACK_MENTIONS = (() => {
-  const m = { requests: ["U0C9M2Q15GC", "U0BPU0W4BCK"], uploads: ["U0C9M2Q15GC", "U0BPU0W4BCK"], pending: ["U0C9M2Q15GC", "U0BPU0W4BCK", "U4UAC501F"], orders: [] };
+  const m = { requests: ["U0C9M2Q15GC", "U0BPU0W4BCK"], uploads: ["U0C9M2Q15GC", "U0BPU0W4BCK"], pending: ["U0C9M2Q15GC", "U0BPU0W4BCK", "U4UAC501F"], orders: [], exchanges: ["UM3REF944"] };
   for (const part of String(process.env.SLACK_MENTIONS || "").split(";")) {
     const [k, v] = part.split(":"); if (!k || !(k.trim().toLowerCase() in m) || v === undefined) continue;
     m[k.trim().toLowerCase()] = v.split(",").map(x => x.trim()).filter(x => /^[UW][A-Z0-9]{6,}$/.test(x));
@@ -578,7 +579,7 @@ function renderTemplate(t, amb) {
 const EMAIL_FILE = () => path.join(DATA_DIR, "email-overrides.json");
 function readEmailOverrides() { try { return JSON.parse(fs.readFileSync(EMAIL_FILE(), "utf8")); } catch (e) { return {}; } }
 function setEmailOverride(id, email) { const m = readEmailOverrides(); m[id] = email; fs.mkdirSync(DATA_DIR, { recursive: true }); fs.writeFileSync(EMAIL_FILE(), JSON.stringify(m, null, 1)); }
-const ambEmails = a => String(readEmailOverrides()[a.id] || a.e || "").split(/[,;\s]+/).filter(x => /@/.test(x));
+const ambEmails = a => String(a.e || "").split(/[,;\s]+/).filter(x => /@/.test(x));
 
 /* ---------- photoshoot gear requests ---------- */
 // Stored as JSON on disk. On Railway attach a Volume mounted at /data so requests survive redeploys.
@@ -983,6 +984,94 @@ async function placeSuggestions(q) {
   } catch (e) { return []; } finally { clearTimeout(timer); }
 }
 
+/* ---------- ambassadors: live from ApparelMagic (customers with the Ambassador box checked) ----------
+   AM gives name, email, Allowance and active status. This server keeps only what AM can't: each person's link code,
+   site ID, PO name and past-season allowances (in /data/ambassadors.json). Existing links carry over from the old a/ files:
+   anyone opening their old link is matched to their AM customer, and opening the Jetty Admin link brings everyone over at once.
+   New links are only handed out after that first carry-over, so nobody already emailed gets a second link. */
+const ROSTER_FILE = () => path.join(DATA_DIR, "ambassadors.json");
+const ROSTER_CACHE = () => path.join(DATA_DIR, "roster-cache.json");
+const PO_SEASON = (() => { const [n, y] = String(SEASON.season || "").split(" "); return ({ Spring: "SPR", Summer: "SUM", Fall: "FAL", Holiday: "HOL" }[n] || String(n || "").slice(0, 3).toUpperCase()) + String(y || "").slice(-2); })();
+let RSTATE = readJson(ROSTER_FILE(), null) || { seeded: false, customers: {} };
+let AMB = new Map(readJson(ROSTER_CACHE(), []).map(r => [r.cid, r]));   // cid -> AM record
+for (const r of AMB.values()) cache.customers.set(r.amc, r.cid);
+let CODES = new Map();                                                 // code -> cid
+let rosterAt = 0, rosterErr = "";
+function indexCodes() { CODES = new Map(); for (const [cid, st] of Object.entries(RSTATE.customers)) for (const c of [st.code, ...(st.alias || [])]) if (c) CODES.set(c, cid); }
+indexCodes();
+const saveRState = () => writeJson(ROSTER_FILE(), RSTATE);
+const cleanName = s => String(s || "").replace(/\s*\(.*$/, "").replace(/\s+-\s*\d+\s*$/, "").replace(/\s+/g, " ").trim();
+const titleIf = s => String(s || "").split(" ").map(w => w.length > 2 && (w === w.toLowerCase() || w === w.toUpperCase()) ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : w).join(" ");   // "darren muschett", "Arthur GORDON" -> proper case
+const money0 = v => { const n = parseFloat(String(v ?? "").replace(/[^0-9.]/g, "")); return isFinite(n) ? n : null; };
+function newCode() { const A = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; let c; do { c = Array.from(crypto.randomBytes(14), b => A[b % A.length]).join(""); } while (CODES.has(c)); return c; }
+function newId() { let id; const used = new Set(Object.values(RSTATE.customers).map(x => x.id)); do { id = crypto.randomBytes(4).toString("hex"); } while (used.has(id)); return id; }
+function amName(r) { const f = String(r.first_name || "").trim(), l = String(r.last_name || "").trim(); return titleIf(f && l ? `${f} ${l}` : cleanName(r.customer_name)); }
+function amOwner(r) { return String(r.last_name || "").trim() || titleIf(cleanName(r.customer_name).split(" ").slice(-1)[0]) || "Ambassador"; }
+async function refreshRoster() {
+  if (!AM_TOKEN) return;
+  try {
+    const rows = await amGet("customers/", [{ field: "ambassador", operator: "=", value: "1" }], { pagination: { page_size: 1000 } });
+    const next = new Map();
+    for (const r of rows) {
+      if (String(r.ambassador) !== "1" || String(r.is_active ?? "1") !== "1") continue;
+      const cid = String(r.customer_id);
+      const kept = !!(RSTATE.customers[cid] || {}).name;
+      next.set(cid, { cid, amc: String(r.customer_name || "").trim(), n: amName(r), e: String(r.email || "").trim(), a: money0(r.allowance), owner: amOwner(r),
+        missing: [!money0(r.allowance) && "Allowance", !String(r.email || "").trim() && "Email", !kept && !(r.first_name && r.last_name) && "First/Last name"].filter(Boolean) });
+      cache.customers.set(String(r.customer_name || "").trim(), cid);
+    }
+    let changed = false;
+    for (const [cid, r] of next) {
+      let st = RSTATE.customers[cid];
+      if (!st && RSTATE.seeded) { st = RSTATE.customers[cid] = { id: newId(), code: newCode(), owner: r.owner, pa: {}, added: new Date().toISOString() }; changed = true;
+        console.log(JSON.stringify({ event: "ambassador_added", name: r.n, customer: r.amc })); }
+      if (st && r.a != null && (st.pa || (st.pa = {}))[PO_SEASON] !== r.a) { st.pa[PO_SEASON] = r.a; changed = true; }   // remembers each season's allowance
+    }
+    AMB = next; rosterAt = Date.now(); rosterErr = "";
+    if (changed) { saveRState(); indexCodes(); }
+    writeJson(ROSTER_CACHE(), [...next.values()]);
+  } catch (e) { rosterErr = e.message; console.error(JSON.stringify({ event: "roster_refresh_failed", error: e.message })); }
+}
+function ambRecord(cid) {   // what the rest of the site calls "me"
+  const r = AMB.get(cid), st = RSTATE.customers[cid];
+  if (!r || !st) return null;
+  const n = st.name || r.n;   // people from the original sheet keep that name; new ambassadors use their AM name
+  return { n, f: n.split(" ")[0], a: r.a ?? 0, e: r.e, id: st.id, cid, amc: r.amc, po: `${st.owner || r.owner} AMB, ${PO_SEASON}`, pa: { ...(st.pa || {}) }, code: st.code, missing: r.missing };
+}
+function liveRoster() { return [...AMB.keys()].map(ambRecord).filter(Boolean).sort((a, b) => a.n.toLowerCase().localeCompare(b.n.toLowerCase())); }
+function adoptLegacy(p, code) {   // match an old-link payload to its AM customer and keep its code, ID, PO name and past allowances
+  const cid = p.amc && cache.customers.get(String(p.amc).trim());
+  if (!cid || !AMB.has(cid)) return null;
+  const st = RSTATE.customers[cid];
+  if (!st) RSTATE.customers[cid] = { id: p.id, code, owner: poOwnerRaw(p.po), pa: { ...(p.pa || {}) }, name: p.n, added: "carried over" };
+  else if (!st.name && p.n && st.added === "carried over") st.name = p.n;
+  if (st && st.code !== code && !(st.alias || []).includes(code)) (st.alias = st.alias || []).push(code);   // both links keep working
+  return cid;
+}
+const poOwnerRaw = po => String(po || "").split(/\s+AMB\b/i)[0].trim();
+function unlock(code) {
+  code = String(code || "").toUpperCase();
+  if (!/^[A-Z0-9]{8,32}$/.test(code)) throw new Error("bad_code");
+  if (RSTATE.store && code === RSTATE.store.code) return storeMe();
+  const cid = CODES.get(code);
+  if (cid) { const me = ambRecord(cid); if (!me) throw new Error("bad_code"); return me; }   // unchecked in AM = link off
+  const p = legacyUnlock(code);
+  if (p.admin || p.t) {                            // Jetty Admin / test accounts stay as they are
+    if (p.admin && Array.isArray(p.roster) && rosterAt && AMB.size) {   // admin visit (once AM has answered): bring every existing link over
+      const before = JSON.stringify(RSTATE);
+      let n = 0; for (const x of p.roster) if (adoptLegacy(x, x.code)) n++;
+      if (!RSTATE.seeded) { RSTATE.seeded = true; console.log(JSON.stringify({ event: "roster_seeded", carried: n })); setTimeout(refreshRoster, 10); }
+      if (JSON.stringify(RSTATE) !== before) { saveRState(); indexCodes(); }
+    }
+    return { ...p, ...(p.admin ? { roster: liveRoster() } : {}) };
+  }
+  const got = adoptLegacy(p, code);
+  if (!got) throw new Error("bad_code");
+  saveRState(); indexCodes();   // next time this code is found directly
+  return ambRecord(got);
+}
+const rosterReady = refreshRoster(); setInterval(refreshRoster, 5 * 60 * 1000);
+
 /* ---------- contact info + shipping instructions (read from / written to the AM customer; nothing stored here) ---------- */
 const CONTACT_FIELDS = { address_1: 100, address_2: 100, city: 60, state: 30, postal_code: 12, country: 40, phone: 30, email: 120, shipping_info: 1000 };
 async function amCustomer(amc) {
@@ -1006,9 +1095,103 @@ async function updateContact(me, changes) {
   if (Object.keys(diff).length) {
     await amPut(`customers/${id}`, { customer_id: id, ...diff });
     console.log(JSON.stringify({ event: "contact_updated", ambassador: me.n, fields: Object.keys(diff) }));
-    if (diff.email && me.id) setEmailOverride(me.id, diff.email);
+    if (diff.email && AMB.has(id)) AMB.get(id).e = diff.email;   // AM is the source; this just avoids waiting for the next refresh
   }
   return { ...contactOut(c), ...diff };
+}
+
+/* ---------- Flagship exchanges ----------
+   Flagship staff open their own link (no store, just the ambassador list), pick the ambassador and the invoice they're
+   exchanging from, the items coming back and the items going out, and the warehouses. It waits for Jetty Admin to
+   approve; approving creates the credit memo against that invoice (returned items, into "returned to") and adds the
+   taken items to the same invoice (pulled from "taken from"). Every AM change is read back and checked. */
+const EX_FILE = () => path.join(DATA_DIR, "exchanges.json");
+const readEx = () => readJson(EX_FILE(), []);
+const writeEx = list => writeJson(EX_FILE(), list);
+const EX_WAREHOUSES = ["DTC - Flagship 176", "Distribution Center", "DTC - Long Branch", "DTC - Box Truck Mobile Store"];
+let whCache = null;
+async function warehouseList() {
+  if (whCache) return whCache;
+  const rows = await amGet("warehouses/");
+  return (whCache = EX_WAREHOUSES.map(n => { const w = rows.find(r => String(r.name || r.warehouse_name || "").trim().toLowerCase() === n.toLowerCase()); return w ? { id: String(w.warehouse_id || w.id), name: n } : null; }).filter(Boolean));
+}
+function storeMe() { return { n: "Flagship Store", f: "Flagship", store: 1, id: "store", roster: liveRoster().map(r => ({ id: r.id, n: r.n, amc: r.amc })) }; }
+async function ambInvoices(amb) {   // invoices for this ambassador's AM customer + PO name, with what's still returnable per line
+  const cid = await customerId(amb.amc);
+  const rows = await amGet("invoices/", [{ field: "customer_id", operator: "=", value: cid }], { pagination: { page_size: 1000 } });
+  const mine = rows.filter(i => String(i.void || "0") !== "1" && seasonOfPo(i.customer_po) && !seasonOfPo(i.customer_po).test && poOwner(i.customer_po) === poOwner(amb.po));
+  const out = [];
+  for (const inv of mine.sort((a, b) => Number(b.invoice_id) - Number(a.invoice_id)).slice(0, 12)) {
+    let credited = {};
+    try {
+      const cms = await amGet("credit_memos/", [{ field: "invoice_id", operator: "=", value: String(inv.invoice_id) }]);
+      for (const cm of cms) if (String(cm.void || "0") !== "1") for (const it of cm.credit_memo_items || []) credited[it.invoice_item_id] = (credited[it.invoice_item_id] || 0) + Number(it.qty || 0);
+    } catch (e) {}
+    const s = seasonOfPo(inv.customer_po);
+    out.push({ invoiceId: String(inv.invoice_id), orderId: String(inv.order_id || ""), date: inv.date || "", po: inv.customer_po, season: s.label,
+      lines: (inv.invoice_items || []).map(it => ({ itemId: String(it.id), skuId: String(it.sku_id), style: it.style_number || "", desc: it.description || "", color: it.attr_2 || "",
+        size: it.size || "", qty: Number(it.qty || 0), left: Math.max(0, Number(it.qty || 0) - (credited[String(it.id)] || 0)), price: Number(it.unit_price || 0), wh: String(it.warehouse_id || "") }))
+        .filter(l => l.qty > 0) });
+  }
+  return out;
+}
+async function skuLookup(q) {   // UPC (scanned or typed) or exact style number -> sizes with retail price and store stock
+  q = String(q || "").trim().toUpperCase(); if (!q) return [];
+  const field = /^\d{11,14}$/.test(q) ? "upc_display" : "style_number";
+  const rows = await amGet("inventory/", [{ field, operator: "=", value: q }], { pagination: { page_size: 200 } });
+  return rows.filter(r => String(r.active ?? "1") === "1").map(r => ({ skuId: String(r.sku_id), upc: r.upc_display || "", style: r.style_number || "", desc: r.description || "",
+    color: r.attr_2 || "", colorName: r.attr_2_name || "", size: r.size || "", price: Number(r.retail_price || 0), pos: Number(r.size_position || 0),
+    stock: { "DTC - Flagship 176": r.flagship_qty, "DTC - Long Branch": r.long_branch_qty } })).sort((a, b) => a.style.localeCompare(b.style) || a.pos - b.pos);
+}
+function exSlackBlocks(x, title) {
+  const it = l => `${l.qty} × ${l.desc || l.style} ${l.color} ${l.size}`.replace(/\s+/g, " ");
+  return [{ type: "header", text: { type: "plain_text", text: title } },
+    fieldsBlock([["Ambassador", x.amb.n], ["Invoice", x.invoiceId], ["Returned to", x.returnedToName], ["Taken from", x.takenFromName], ["Submitted by", x.by], ["Exchange", x.id]]),
+    { type: "section", text: { type: "mrkdwn", text: `*Returned*\n${slackEsc(x.returned.map(it).join("\n") || "none")}\n*Taken*\n${slackEsc(x.taken.map(it).join("\n") || "none")}${x.notes ? `\n*Notes*\n${slackEsc(x.notes)}` : ""}` } },
+    { type: "actions", elements: [{ type: "button", text: { type: "plain_text", text: "Review in Jetty Ambassador" }, url: `${SITE()}/#${x.id}` }] }];
+}
+async function getInvoice(id) { const r = await amGet("invoices/", [{ field: "invoice_id", operator: "=", value: String(id) }]); const inv = r.find(x => String(x.invoice_id) === String(id)); if (!inv) throw new Error("Invoice not found in AM"); return inv; }
+async function applyExchange(x) {
+  const log = [], inv = await getInvoice(x.invoiceId), items = inv.invoice_items || [];
+  // 1) credit memo for the returned items, against this invoice, into "returned to"
+  if (x.returned.length && !x.am.creditMemoId) {
+    const header = { customer_id: String(inv.customer_id), invoice_id: String(inv.invoice_id), warehouse_id: x.returnedTo, division_id: String(inv.division_id || ""),
+      customer_po: inv.customer_po || "", pct_discount: String(inv.pct_discount || "0"), terms_id: String(inv.terms_id || ""),
+      date: new Date().toLocaleDateString("en-US", { timeZone: "America/New_York", month: "2-digit", day: "2-digit", year: "numeric" }),
+      notes: `Ambassador exchange ${x.id} at Flagship (${x.by}). Returned to ${x.returnedToName}.` };
+    const cmItems = x.returned.map(l => { const src = items.find(i => String(i.id) === l.itemId);
+      if (!src) throw new Error(`Returned line ${l.style} ${l.size} isn't on invoice ${inv.invoice_id} anymore`);
+      return { invoice_id: String(inv.invoice_id), invoice_item_id: l.itemId, sku_id: String(src.sku_id), qty: String(l.qty), unit_price: String(src.unit_price), warehouse_id: x.returnedTo }; });
+    const res = await amPost("credit_memos/", { header, items: cmItems });
+    const cm = Array.isArray(res) ? res[0] : res;
+    x.am.creditMemoId = String(cm?.credit_memo_id || "");
+    if (!x.am.creditMemoId) throw new Error("AM didn't return a credit memo number");
+    const back = (await amGet("credit_memos/", [{ field: "credit_memo_id", operator: "=", value: x.am.creditMemoId }]))[0] || {};
+    const got = (back.credit_memo_items || []).reduce((n, i) => n + Number(i.qty || 0), 0), want = x.returned.reduce((n, l) => n + l.qty, 0);
+    const wrongWh = (back.credit_memo_items || []).some(i => String(i.warehouse_id) !== x.returnedTo);
+    log.push(`Credit memo ${x.am.creditMemoId}: ${got} of ${want} units${wrongWh ? " (check warehouse)" : ""}`);
+    if (got !== want || wrongWh) x.am.warn = (x.am.warn || []).concat(`Credit memo ${x.am.creditMemoId} has ${got} units${wrongWh ? " and a different warehouse" : ""}; expected ${want} into ${x.returnedToName}.`);
+  }
+  // 2) add the taken items to the same invoice, pulled from "taken from"
+  if (x.taken.length && !x.am.invoiceUpdated) {
+    const before = items.map(i => ({ id: String(i.id), qty: String(i.qty) }));
+    const keep = items.map(i => ({ id: String(i.id), sku_id: String(i.sku_id), qty: String(i.qty), unit_price: String(i.unit_price), warehouse_id: String(i.warehouse_id), ...(i.order_item_id ? { order_item_id: String(i.order_item_id) } : {}) }));
+    const add = x.taken.map(t => ({ sku_id: t.skuId, qty: String(t.qty), unit_price: String(t.price), warehouse_id: x.takenFrom }));
+    const ok = async () => { const now = (await getInvoice(x.invoiceId)).invoice_items || [];
+      const intact = before.every(b => now.some(n => String(n.id) === b.id && Number(n.qty) === Number(b.qty)));
+      const added = x.taken.every(t => now.filter(n => !before.some(b => b.id === String(n.id)) && String(n.sku_id) === t.skuId && String(n.warehouse_id) === x.takenFrom).reduce((q, n) => q + Number(n.qty), 0) >= t.qty);
+      return { intact, added, count: now.length }; };
+    let check = null;
+    for (const body of [{ invoice_items: keep.concat(add) }, { items: keep.concat(add) }]) {   // AM accepts one of these shapes; the result is verified either way
+      try { await amPut(`invoices/${x.invoiceId}`, { invoice_id: x.invoiceId, ...body }); } catch (e) { log.push("Invoice update attempt: " + e.message.slice(0, 160)); }
+      check = await ok();
+      if (check.added || !check.intact) break;
+    }
+    if (!check.intact) throw new Error(`Invoice ${x.invoiceId} changed unexpectedly while adding items. Check it in AM.`);
+    if (!check.added) throw new Error(`AM didn't add the taken items to invoice ${x.invoiceId}. Nothing on the invoice was changed.`);
+    x.am.invoiceUpdated = true; log.push(`Invoice ${x.invoiceId}: added ${x.taken.reduce((n, t) => n + t.qty, 0)} units from ${x.takenFromName}`);
+  }
+  return log;
 }
 
 /* ---------- order ---------- */
@@ -1105,7 +1288,7 @@ async function handleOrder(input) {
 
 /* ---------- http ---------- */
 const TYPES = { ".html": "text/html; charset=utf-8", ".json": "application/json", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp", ".txt": "text/plain", ".css": "text/css", ".js": "text/javascript", ".svg": "image/svg+xml", ".webmanifest": "application/manifest+json" };
-const PUBLIC = /^\/(index\.html|robots\.txt|manifest\.webmanifest|a\/[0-9a-f]{20}\.json|(img|brand)\/[^/]+\.(jpg|jpeg|png|webp))?$/i;
+const PUBLIC = /^\/(index\.html|robots\.txt|manifest\.webmanifest|(img|brand)\/[^/]+\.(jpg|jpeg|png|webp))?$/i;
 function send(res, status, body, type = "application/json") {
   res.writeHead(status, { "Content-Type": type, "Cache-Control": "no-store", "X-Robots-Tag": "noindex" });
   res.end(typeof body === "string" || Buffer.isBuffer(body) ? body : JSON.stringify(body));
@@ -1149,6 +1332,75 @@ http.createServer(async (req, res) => {
         console.error(JSON.stringify({ event: "spent_error", error: e.message }));
         return send(res, e.message === "bad_code" || e.code === "ENOENT" ? 403 : 502, { ok: false });
       }
+    }
+    if (req.method === "POST" && url.pathname === "/api/me") {   // {code} -> this person's details (and the full list for Jetty Admin)
+      let raw = ""; for await (const c of req) { raw += c; if (raw.length > 2000) return send(res, 413, { ok: false }); }
+      try { if (!rosterAt) await Promise.race([rosterReady, new Promise(r => setTimeout(r, 8000))]); const me = unlock(JSON.parse(raw).code); const { code, ...out } = me; return send(res, 200, { ok: true, me: out }); }
+      catch (e) { return send(res, 403, { ok: false }); }
+    }
+    if (req.method === "POST" && url.pathname.startsWith("/api/exchange/")) {
+      let raw = ""; for await (const c of req) { raw += c; if (raw.length > 60000) return send(res, 413, { ok: false }); }
+      const action = url.pathname.slice("/api/exchange/".length);
+      try {
+        const body = JSON.parse(raw), me = unlock(body.code);
+        const staff = !!me.admin, store = !!me.store;
+        if (!staff && !store) return send(res, 403, { ok: false });
+        if (action === "warehouses") return send(res, 200, { ok: true, warehouses: await warehouseList() });
+        if (action === "invoices") {
+          const amb = liveRoster().find(r => r.id === String(body.as)); if (!amb) return send(res, 404, { ok: false, error: "Ambassador not found." });
+          return send(res, 200, { ok: true, invoices: await ambInvoices(amb) });
+        }
+        if (action === "lookup") return send(res, 200, { ok: true, items: await skuLookup(body.q) });
+        if (action === "submit") {
+          const amb = liveRoster().find(r => r.id === String(body.as)); if (!amb) return send(res, 404, { ok: false, error: "Ambassador not found." });
+          const whs = await warehouseList(), wn = id => (whs.find(w => w.id === String(id)) || {}).name;
+          if (!wn(body.takenFrom) || !wn(body.returnedTo)) return send(res, 400, { ok: false, error: "Pick the warehouses." });
+          const inv = (await ambInvoices(amb)).find(i => i.invoiceId === String(body.invoiceId)); if (!inv) return send(res, 400, { ok: false, error: "Pick the order they're exchanging from." });
+          const returned = (body.returned || []).map(r => { const l = inv.lines.find(x => x.itemId === String(r.itemId)); const q = parseInt(r.qty, 10);
+            return l && q > 0 && q <= l.left ? { itemId: l.itemId, skuId: l.skuId, style: l.style, desc: l.desc, color: l.color, size: l.size, qty: q, price: l.price } : null; }).filter(Boolean);
+          const taken = [];
+          for (const t of body.taken || []) { const q = parseInt(t.qty, 10); if (!(q > 0 && q < 50)) continue;
+            const hit = (await skuLookup(t.upc || t.style)).find(x => x.skuId === String(t.skuId)); if (!hit) return send(res, 400, { ok: false, error: `Couldn't find ${t.style || t.upc} in AM.` });
+            taken.push({ skuId: hit.skuId, upc: hit.upc, style: hit.style, desc: hit.desc, color: hit.color, size: hit.size, qty: q, price: hit.price }); }
+          if (!returned.length && !taken.length) return send(res, 400, { ok: false, error: "Add the items being returned and taken." });
+          const x = { id: "EX-" + Date.now().toString(36).toUpperCase(), at: new Date().toISOString(), by: clip(body.by, 60) || (store ? "Flagship staff" : me.n), notes: clip(body.notes, 1000),
+            amb: { id: amb.id, n: amb.n, amc: amb.amc }, invoiceId: inv.invoiceId, orderId: inv.orderId, po: inv.po, season: inv.season,
+            takenFrom: String(body.takenFrom), takenFromName: wn(body.takenFrom), returnedTo: String(body.returnedTo), returnedToName: wn(body.returnedTo),
+            returned, taken, status: "Pending", am: {} };
+          const list = readEx(); list.unshift(x); writeEx(list.slice(0, 500));
+          notify("exchanges", `Flagship exchange for ${amb.n} needs your approval`, exSlackBlocks(x, "Ambassador exchange: needs approval"));
+          return send(res, 200, { ok: true, exchange: x });
+        }
+        if (action === "list") return send(res, 200, { ok: true, exchanges: store ? readEx().slice(0, 30).map(({ am, ...x }) => x) : readEx() });
+        if (!staff) return send(res, 403, { ok: false });
+        if (action === "store-link") {
+          if (body.reset || !RSTATE.store) { RSTATE.store = { code: newCode(), created: new Date().toISOString() }; saveRState(); }
+          return send(res, 200, { ok: true, link: `${SITE()}/#${RSTATE.store.code}` });
+        }
+        const list = readEx(), x = list.find(e => e.id === String(body.id)); if (!x) return send(res, 404, { ok: false });
+        if (action === "reject") { x.status = "Rejected"; x.decidedAt = new Date().toISOString(); writeEx(list); return send(res, 200, { ok: true, exchange: x }); }
+        if (action === "approve") {
+          if (x.status === "Approved") return send(res, 200, { ok: true, exchange: x });
+          x.status = "Working"; writeEx(list);
+          try { x.am.log = (x.am.log || []).concat(await applyExchange(x)); x.status = x.am.warn && x.am.warn.length ? "Needs attention" : "Approved"; x.am.error = ""; }
+          catch (e) { x.status = "Needs attention"; x.am.error = e.message.slice(0, 300); console.error(JSON.stringify({ event: "exchange_failed", id: x.id, error: e.message })); }
+          x.decidedAt = new Date().toISOString(); writeEx(list);
+          histCache.clear(); spentCache.clear();
+          return send(res, 200, { ok: true, exchange: x });
+        }
+        return send(res, 404, { ok: false });
+      } catch (e) {
+        console.error(JSON.stringify({ event: "exchange_error", action, error: e.message }));
+        return send(res, e.message === "bad_code" || e.code === "ENOENT" ? 403 : 502, { ok: false, error: e.message === "bad_code" ? "Link not recognized." : "Couldn't reach our system. Try again." });
+      }
+    }
+    if (req.method === "POST" && url.pathname === "/api/admin/roster") {   // {code, refresh?} staff: re-read AM now
+      let raw = ""; for await (const c of req) { raw += c; if (raw.length > 2000) return send(res, 413, { ok: false }); }
+      try {
+        const body = JSON.parse(raw), me = unlock(body.code); if (!me.admin) return send(res, 403, { ok: false });
+        if (body.refresh) await refreshRoster();
+        return send(res, 200, { ok: true, roster: liveRoster(), at: rosterAt, error: rosterErr, waitingForCarryOver: !RSTATE.seeded });
+      } catch (e) { return send(res, 403, { ok: false }); }
     }
     if (req.method === "POST" && url.pathname === "/api/contact") {   // {code, as?, update?}
       if (!AM_TOKEN) return send(res, 503, { ok: false, error: "Not connected to our system yet." });

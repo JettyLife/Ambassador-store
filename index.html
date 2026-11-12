@@ -703,6 +703,34 @@ body.closed .band .bar1{grid-template-columns:1fr auto}
 .ematt li{display:flex;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:6px 10px;font-size:13.5px}
 .ematt li .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ematt li small{color:var(--muted)}
 .ematt .attbtn{align-self:flex-start;cursor:pointer}
+.aside .atx small.miss,.ambh .miss{color:var(--warn);white-space:normal}.ambh .miss{font-size:13px;margin:4px 0 0}
+.asideh h3 .amref{float:right;font-family:var(--f-body);font-size:12px;text-transform:none;letter-spacing:0;margin-top:4px}
+/* Flagship exchange app */
+body.storemode>header.top,body.storemode>main,body.storemode>#soon{display:none!important}
+.exband{background:var(--slate);color:#fff}.exbar{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-block:14px;flex-wrap:wrap}
+.exbar .brand{display:flex;flex-direction:column}.exbar .brand .wm b{font-family:var(--f-display);font-size:24px;letter-spacing:.06em;text-transform:uppercase}.exbar .brand span:last-child{font-size:13px;opacity:.85}
+.exby{display:flex;align-items:center;gap:8px;font-size:13px}.exby input{border:0;border-radius:var(--r);padding:8px 10px;font-size:15px;min-width:180px}
+.exbody{padding-block:20px 60px;max-width:820px;display:flex;flex-direction:column;gap:12px}
+.exh{font-family:var(--f-display);text-transform:uppercase;letter-spacing:.03em;font-size:26px;margin:6px 0 4px}.exh small{font-family:var(--f-body);text-transform:none;letter-spacing:0;font-size:14px;color:var(--muted);margin-left:6px}
+.exsearch input{width:100%}
+.expeople{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:6px}
+.expeople .aname{all:unset;box-sizing:border-box;cursor:pointer;display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface)}
+.expeople .aname:hover{border-color:var(--slate)}
+.exinvs{display:flex;flex-direction:column;gap:8px}.exinv{all:unset;box-sizing:border-box;cursor:pointer;display:flex;flex-direction:column;gap:3px;padding:12px 14px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface)}
+.exinv:hover{border-color:var(--slate)}.exinv span{font-size:13px;color:var(--muted)}.exinv small{font-size:12.5px;color:var(--muted)}
+.exwh{display:grid;grid-template-columns:1fr 1fr;gap:12px}.exwh select{width:100%;border:1px solid var(--line);border-radius:var(--r);background:var(--bg);padding:10px;font-size:15px}
+@media(max-width:560px){.exwh{grid-template-columns:1fr}}
+.exlines{display:flex;flex-direction:column;gap:6px}.exl{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface)}
+.exl.on{border-color:var(--slate);background:var(--accent-soft)}.exn small{color:var(--muted);margin-left:4px}
+.exlook{display:flex;gap:8px}.exlook input{flex:1;border:1px solid var(--line);border-radius:var(--r);padding:10px 11px;font-size:16px;background:var(--bg)}
+.exsug{display:flex;flex-wrap:wrap;gap:6px}
+.exhits{display:flex;flex-direction:column;gap:8px;border:1px dashed var(--line);border-radius:var(--r);padding:10px}
+.exsz{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}.exsz .szb{display:flex;flex-direction:column;align-items:center;min-width:52px}.exsz .szb small{font-size:10.5px;color:var(--muted);font-weight:400}
+.exrecent{display:flex;flex-direction:column;gap:4px;font-size:13.5px}
+.exst{font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px;background:var(--tile)}
+.st-approved .exst,.exst.st-approved{background:#e3f1e8;color:var(--ok)}.st-needs-attention .exst,.exst.st-needs-attention{background:var(--warn-soft);color:var(--warn)}.st-rejected .exst,.exst.st-rejected{color:var(--muted)}
+.excard .rtop{display:flex;justify-content:space-between;align-items:center;gap:10px}.excols{display:grid;grid-template-columns:1fr 1fr;gap:14px}.excols h4{margin:4px 0}.excols ul{margin:0;padding-left:18px;font-size:13.5px}
+@media(max-width:560px){.excols{grid-template-columns:1fr}}
 </style></head><body>
 <header class="top">
   <div class="band">
@@ -794,6 +822,7 @@ body.closed .band .bar1{grid-template-columns:1fr auto}
   <div class="wrap pbody" id="profBody"></div>
 </div>
 <div class="upmodal" id="upModal" hidden role="dialog" aria-modal="true" aria-labelledby="upTitle"><div class="upcard" id="upCard"></div></div>
+<section class="exapp" id="exapp" hidden></section>
 <div class="toast" id="toast" hidden></div>
 
 <script>
@@ -836,15 +865,16 @@ async function unlock(code, blob){
 async function loadMe(){
   let code = (location.hash || "").replace(/^#/, "").trim().toUpperCase();
   // Links from Slack: #REQ-… (a gear request) or #UP-… (an upload). They open with the code saved on this device.
-  const deep = code.match(/^(REQ|UP)-[A-Z0-9]+$/);
+  const deep = code.match(/^(REQ|UP|EX)-[A-Z0-9]+$/);
   if (deep) { S.deep = { type: deep[1], id: code }; code = ""; history.replaceState(null, "", location.pathname); }
   S.viewing = /-V$/.test(code); code = code.replace(/-V$/, "");
   if (!code) code = store.get("jas:code") || "";
   if (!/^[A-Z0-9]{8,32}$/.test(code)) return null;
   try {
-    const r = await fetch("a/" + await fileIdFor(code) + ".json", { cache: "no-store" });
+    const r = await fetch("/api/me", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code }) });
     if (!r.ok) return null;
-    const me = await unlock(code, await r.json());
+    const j = await r.json(); if (!j.ok || !j.me) return null;
+    const me = j.me;
     if (!S.viewing) {
       store.set("jas:code", code);
       if (location.hash.replace("#","").toUpperCase() !== code) history.replaceState(null, "", "#" + code);
@@ -1353,7 +1383,7 @@ let ADM = { q: "", open: null, data: {} };
 const isStaff = () => !!(S.me && S.me.admin && Array.isArray(S.me.roster));
 let PTAB = "orders";
 const PTABS = [["info","My Info"],["orders","Past Orders"],["requests","Photo Gear Requests"],["upload","Upload Content"]];
-const STAFF_TABS = [["seasons","Orders by Season"],["emails","Email Templates"]];
+const STAFF_TABS = [["seasons","Orders by Season"],["exchanges","Exchanges"],["emails","Email Templates"]];
 let SEAS = { data: null, pick: null, sort: "n", prod: "" };
 const prodName = st => { const p = PRODUCTS.find(x => x.s === st); return p ? `${p.d} – ${p.c}` : ""; };
 function allItemsBySeason(){
@@ -1426,6 +1456,18 @@ async function pickedUp(btn){
     if (btn.dataset.as) { delete ADM.data[btn.dataset.as]; loadAmb(btn.dataset.as); } else { PROF = null; loadProfile(); }
   } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = "Mark as picked up"; }
 }
+let ROSTER_BUSY = false;
+async function refreshRosterNow(){
+  ROSTER_BUSY = true; renderProfile();
+  try {
+    const r = await fetch("/api/admin/roster", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: S.code, refresh: true }) });
+    const j = await r.json();
+    if (!r.ok || !j.ok) throw new Error();
+    const before = S.me.roster.length; S.me.roster = j.roster;
+    toast(j.error ? "Couldn't reach AM. Showing the last list." : j.roster.length > before ? `${j.roster.length - before} new ambassador${j.roster.length - before === 1 ? "" : "s"} added` : "Ambassador list is up to date");
+  } catch (e) { toast("Couldn't refresh. Try again."); }
+  ROSTER_BUSY = false; renderProfile();
+}
 function profileSidebar(){
   const staff = isStaff();
   const openReq = staff && Array.isArray(REQ.all) ? REQ.all.filter(r => r.status === "Open").length : 0;
@@ -1435,7 +1477,7 @@ function profileSidebar(){
   const q = ADM.q.toLowerCase(), pq = SEAS.prod.trim(), hits = pq ? productHits(pq) : null;
   const list = S.me.roster.filter(r => (!q || (r.n + " " + r.e + " " + r.amc).toLowerCase().includes(q)) && (!hits || hits.has(r.id)));
   return `<aside class="aside"><div class="asidebox">${nav}${snav}</div>
-    <div class="ambsec"><div class="asideh"><h3>Ambassadors <small>${S.me.roster.length}</small></h3>
+    <div class="ambsec"><div class="asideh"><h3>Ambassadors <small>${S.me.roster.length}</small><button type="button" class="link amref" id="rosterRefresh" title="Re-read the ambassador list from ApparelMagic">${ROSTER_BUSY ? "Checking AM…" : "Refresh from AM"}</button></h3>
       <label class="search"><span aria-hidden="true">⌕</span><input id="admQ" type="search" placeholder="Find an ambassador" value="${esc(ADM.q)}" aria-label="Find an ambassador"></label>
       <label class="search"><span aria-hidden="true">▢</span><input id="prodQ" type="search" list="prodList" placeholder="Who ordered a product?" value="${esc(SEAS.prod)}" aria-label="Filter ambassadors by product ordered"></label>
       <datalist id="prodList">${prodOptions().map(o => `<option value="${esc(o.s)}">${esc(o.label)}</option>`).join("")}</datalist>
@@ -1443,7 +1485,7 @@ function profileSidebar(){
     <div class="alist">${list.map(r => `<button type="button" class="aname${ADM.open === r.id ? " on" : ""}" data-amb="${esc(r.id)}">
         <span class="av">${esc(initials(r.n))}</span><span class="atx"><b>${esc(r.n)}</b>${hits && hits.get(r.id)
           ? `<small class="hitline">${hits.get(r.id).map(h => `${h.q} × ${esc(prodName(h.s) || h.d)} ${esc(h.z)} · ${esc(h.season)}`).join("<br>")}</small>`
-          : `<small>${money(r.a)} · ${esc(r.amc || "No AM customer")}</small>`}</span></button>`).join("")
+          : `<small>${money(r.a)} · ${esc(r.amc || "No AM customer")}</small>${(r.missing || []).length ? `<small class="miss">Missing in AM: ${esc(r.missing.join(", "))}</small>` : ""}`}</span></button>`).join("")
         || `<p class="hint">${pq && !Array.isArray(SEAS.data) ? "Loading orders…" : "No match."}</p>`}</div></div>
   </aside>`;
 }
@@ -1457,7 +1499,8 @@ function seasonsHTML(seasons, ns){
 function ambPanel(){
   const r = S.me.roster.find(x => x.id === ADM.open), d = ADM.data[r.id];
   return `<div class="ambh"><div class="pwho"><span class="av big dark">${esc(initials(r.n))}</span><div><small>Ambassador</small><h2>${esc(r.n)}</h2>
-      <p class="hint">${esc(r.e)} · ${esc(r.amc || "No AM customer")} · PO <span class="code">${esc(r.po)}</span></p></div></div>
+      <p class="hint">${esc(r.e || "No email in AM")} · ${esc(r.amc || "No AM customer")} · PO <span class="code">${esc(r.po)}</span> · Allowance ${money(r.a)}</p>
+      ${(r.missing || []).length ? `<p class="miss">Missing in their AM customer account: ${esc(r.missing.join(", "))}</p>` : ""}</div></div>
       <div class="alinks"><button type="button" class="alink" data-copylink="${esc(r.code)}" title="Copy ${esc(r.n)}'s personal store link">Copy their link</button>
         <a class="alink" href="/#${esc(r.code)}-V" target="_blank" rel="noopener">View their store ↗</a>
         <button type="button" class="alink" data-ambrefresh="${esc(r.id)}">Refresh orders</button></div>
@@ -1913,6 +1956,7 @@ function renderProfile(){
     : PTAB === "requests" ? (staff ? staffRequestsPanel() : requestsSection())
     : PTAB === "upload" ? uploadPanel()
     : PTAB === "info" ? infoPanel()
+    : PTAB === "exchanges" && staff ? exAdminPanel()
     : PTAB === "seasons" && staff ? seasonsPanel()
     : PTAB === "emails" && staff ? emailsPanel()
     : myPanel();
@@ -1963,6 +2007,8 @@ $("profBody").addEventListener("click", e => {
   if (e.target.id === "rq-cancel") { readDraft(); REQ.form = false; REQ.err = ""; renderProfile(); return; }
   const ce = e.target.closest("[data-ctedit]"); if (ce) { const c = CT[ce.dataset.ctedit]; c.edit = true; c.msg = ""; renderProfile(); return; }
   const cc = e.target.closest("[data-ctcancel]"); if (cc) { const w = cc.dataset.ctcancel; CT[w] = {}; loadContact(w).catch(()=>{}).finally(renderProfile); renderProfile(); return; }
+  if (PTAB === "exchanges" && !ADM.open && e.target.closest("#exaLink,#exaReset,[data-exapprove],[data-exreject]")) { exAdminClick(e); return; }
+  if (e.target.id === "rosterRefresh") { if (!ROSTER_BUSY) refreshRosterNow(); return; }
   if (e.target.id === "histRefresh") { PROF = null; renderProfile(); loadProfile(true); return; }
   const ar = e.target.closest("[data-ambrefresh]"); if (ar) { delete ADM.data[ar.dataset.ambrefresh]; renderProfile(); loadAmb(ar.dataset.ambrefresh, true); return; }
   const sp = e.target.closest("[data-seas]"); if (sp) { SEAS.pick = sp.dataset.seas; renderProfile(); return; }
@@ -2170,6 +2216,159 @@ async function emClick(e){
 }
 function markDirty(){ const b = $("emSave"); if (b) { b.disabled = false; b.textContent = "Save changes"; } const s = $("emSend"); if (s) s.disabled = true; const t = $("emTest"); if (t) t.disabled = true; }
 
+
+/* ===== Ambassador exchanges (Flagship staff link + Jetty Admin → Exchanges) ===== */
+async function exApi(action, extra){
+  const r = await fetch("/api/exchange/" + action, { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ code: S.code, ...(extra || {}) }) });
+  const j = await r.json().catch(() => ({})); if (!r.ok || !j.ok) throw new Error(j.error || "Something went wrong. Try again."); return j;
+}
+let EXS = { step: "people", q: "", amb: null, invoices: null, inv: null, wh: [], takenFrom: "", returnedTo: "", ret: {}, taken: [], look: "", hits: null, busy: false, err: "", notes: "", done: null, recent: null };
+const exLine = l => `${esc(l.desc || exName(l.style) || l.style)} <small>${esc(l.color)} · ${esc(l.size)}</small>`;
+function exName(style){ const p = PRODUCTS.find(x => x.s === style); return p ? p.d : ""; }
+function startExchangeApp(){
+  document.body.classList.add("storemode"); $("exapp").hidden = false;
+  EXS.by = store.get("jas:exby") || "";
+  exApi("warehouses").then(j => { EXS.wh = j.warehouses; const f = (j.warehouses.find(w => /flagship/i.test(w.name)) || j.warehouses[0] || {}).id || "";
+    EXS.takenFrom = EXS.takenFrom || f; EXS.returnedTo = EXS.returnedTo || f; renderEx(); }).catch(() => {});
+  exApi("list").then(j => { EXS.recent = j.exchanges; renderEx(); }).catch(() => {});
+  renderEx();
+}
+function exReset(){ Object.assign(EXS, { step: "people", amb: null, invoices: null, inv: null, ret: {}, taken: [], look: "", hits: null, err: "", notes: "", done: null }); }
+function renderEx(){
+  const el = $("exapp"); if (!el) return;
+  const roster = S.me.roster || [], q = EXS.q.toLowerCase();
+  let body = "";
+  if (EXS.done) body = `<div class="okbox"><b>Exchange sent for approval</b>${esc(EXS.done.amb.n)}: ${EXS.done.returned.reduce((n,l)=>n+l.qty,0)} returned, ${EXS.done.taken.reduce((n,l)=>n+l.qty,0)} taken. Tyler gets a Slack message to approve it and update AM.</div>
+      <button type="button" class="primary" id="exAgain">Start another exchange</button>`;
+  else if (EXS.step === "people") body = `<h2 class="exh">Who's exchanging?</h2>
+      <label class="search exsearch"><span aria-hidden="true">⌕</span><input id="exQ" type="search" placeholder="Find an ambassador" value="${esc(EXS.q)}" autocomplete="off"></label>
+      <div class="expeople">${roster.filter(r => !q || r.n.toLowerCase().includes(q)).map(r => `<button type="button" class="aname" data-examb="${esc(r.id)}"><span class="av">${esc(initials(r.n))}</span><span class="atx"><b>${esc(r.n)}</b></span></button>`).join("") || `<p class="hint">No one matches.</p>`}</div>
+      ${Array.isArray(EXS.recent) && EXS.recent.length ? `<h3 class="psec">Recent exchanges</h3><div class="exrecent">${EXS.recent.slice(0, 8).map(x => `<div><b>${esc(x.amb.n)}</b> · ${new Date(x.at).toLocaleDateString("en-US",{month:"short",day:"numeric"})} · <span class="exst st-${esc(x.status.toLowerCase().replace(/\s+/g,"-"))}">${esc(x.status === "Pending" ? "Waiting for approval" : x.status)}</span></div>`).join("")}</div>` : ""}`;
+  else if (EXS.step === "invoice") body = `<button type="button" class="link" id="exBack">‹ Back to ambassadors</button><h2 class="exh">${esc(EXS.amb.n)}: which order are they exchanging from?</h2>
+      ${EXS.invoices === null ? `<p class="hint">Loading their orders…</p>` : EXS.invoices.error ? `<p class="hint">${esc(EXS.invoices.error)}</p>`
+        : EXS.invoices.length ? `<div class="exinvs">${EXS.invoices.map(i => `<button type="button" class="exinv" data-exinv="${esc(i.invoiceId)}"><b>${esc(i.season)}</b><span>Invoice ${esc(i.invoiceId)} · ${esc(i.date)}</span><small>${i.lines.reduce((n,l)=>n+l.qty,0)} items · ${esc(i.lines.slice(0,4).map(l => exName(l.style) || l.desc || l.style).join(", "))}${i.lines.length > 4 ? "…" : ""}</small></button>`).join("")}</div>`
+        : `<p class="hint">No invoiced orders found for ${esc(EXS.amb.n)} yet. Their order has to be invoiced before it can be exchanged.</p>`}`;
+  else {
+    const inv = EXS.inv, whSel = (id, v) => `<select id="${id}">${EXS.wh.map(w => `<option value="${esc(w.id)}"${w.id === v ? " selected" : ""}>${esc(w.name)}</option>`).join("")}</select>`;
+    const retN = Object.values(EXS.ret).reduce((n, q) => n + q, 0), takeN = EXS.taken.reduce((n, t) => n + t.qty, 0);
+    const twh = (EXS.wh.find(w => w.id === EXS.takenFrom) || {}).name || "";
+    body = `<button type="button" class="link" id="exBackInv">‹ Back to ${esc(EXS.amb.n)}'s orders</button>
+      <h2 class="exh">${esc(EXS.amb.n)} · ${esc(inv.season)} <small>Invoice ${esc(inv.invoiceId)}</small></h2>
+      <div class="exwh"><label class="f"><span>Returned items go back to</span>${whSel("exRet", EXS.returnedTo)}</label><label class="f"><span>New items are taken from</span>${whSel("exTake", EXS.takenFrom)}</label></div>
+      <h3 class="psec">Items being returned <small>${retN}</small></h3>
+      <div class="exlines">${inv.lines.map(l => { const q = EXS.ret[l.itemId] || 0; return `<div class="exl${q ? " on" : ""}"><span class="exn">${exLine(l)}</span>
+        ${l.left ? `<div class="step"><button type="button" data-exret="${esc(l.itemId)}" data-d="-1" aria-label="One fewer">−</button><span>${q}</span><button type="button" data-exret="${esc(l.itemId)}" data-d="1" aria-label="One more"${q >= l.left ? " disabled" : ""}>+</button></div>` : `<small class="hint">Already returned</small>`}</div>`; }).join("")}</div>
+      <h3 class="psec">Items being taken <small>${takeN}</small></h3>
+      <div class="exlook"><input id="exLook" placeholder="Scan the tag, or type a UPC, style number or product name" value="${esc(EXS.look)}" autocomplete="off"><button type="button" class="alink" id="exFind">${EXS.busy === "look" ? "Finding…" : "Find"}</button></div>
+      ${exSuggest()}
+      ${EXS.hits ? (EXS.hits.length ? `<div class="exhits">${exHitsHTML()}</div>` : `<p class="hint">Nothing in AM matches “${esc(EXS.look)}”. Try the UPC from the tag.</p>`) : ""}
+      <div class="exlines">${EXS.taken.map((t, i) => `<div class="exl on"><span class="exn">${exLine(t)}</span><div class="step"><button type="button" data-extake="${i}" data-d="-1" aria-label="One fewer">−</button><span>${t.qty}</span><button type="button" data-extake="${i}" data-d="1" aria-label="One more">+</button></div></div>`).join("") || `<p class="hint">Nothing added yet.</p>`}</div>
+      <label class="f"><span>Notes (optional)</span><textarea id="exNotes" rows="2">${esc(EXS.notes)}</textarea></label>
+      ${EXS.err ? `<div class="note">${esc(EXS.err)}</div>` : ""}
+      <button type="button" class="primary" id="exSubmit"${EXS.busy === "submit" || !(retN || takeN) ? " disabled" : ""}>${EXS.busy === "submit" ? "Sending…" : `Submit exchange (${retN} returned, ${takeN} taken)`}</button>
+      <p class="hint">Taken items come out of ${esc(twh)}. Tyler approves it before anything changes in AM.</p>`;
+  }
+  el.innerHTML = `<div class="exband"><div class="wrap exbar"><div class="brand"><span class="wm"><b>Jetty</b></span><span>Flagship · Ambassador Exchanges</span></div>
+      <label class="exby"><span>Your name</span><input id="exBy" value="${esc(EXS.by || "")}" placeholder="Who's helping?" autocomplete="off"></label></div></div>
+    <div class="wrap exbody">${body}</div>`;
+}
+function exSuggest(){
+  const q = EXS.look.trim().toLowerCase(); if (q.length < 3 || /^\d+$/.test(q) || EXS.hits) return "";
+  const m = PRODUCTS.filter(p => (p.d + " " + p.c + " " + p.s).toLowerCase().includes(q)).slice(0, 8);
+  return m.length ? `<div class="exsug">${m.map(p => `<button type="button" class="chip" data-exstyle="${esc(p.s)}">${esc(p.d)} · ${esc(p.c)}</button>`).join("")}</div>` : "";
+}
+function exHitsHTML(){
+  const twh = (EXS.wh.find(w => w.id === EXS.takenFrom) || {}).name || "";
+  const by = new Map(); EXS.hits.forEach(h => { if (!by.has(h.style)) by.set(h.style, []); by.get(h.style).push(h); });
+  return [...by.entries()].map(([st, hs]) => `<div class="exhit"><b>${esc(hs[0].desc || exName(st) || st)}</b> <small>${esc(hs[0].colorName || hs[0].color)} · ${esc(st)}</small>
+    <div class="exsz">${hs.map(h => { const stock = h.stock && h.stock[twh]; return `<button type="button" class="szb" data-exadd="${esc(h.skuId)}">${esc(h.size)}${stock != null && stock !== "" ? `<small>${Math.max(0, parseInt(stock, 10) || 0)} here</small>` : ""}</button>`; }).join("")}</div></div>`).join("");
+}
+async function exLookup(q){
+  EXS.look = q; EXS.busy = "look"; EXS.hits = null; renderEx();
+  try { EXS.hits = (await exApi("lookup", { q })).items; } catch (e) { EXS.err = e.message; }
+  EXS.busy = false; renderEx(); setTimeout(() => $("exLook")?.focus(), 20);
+}
+document.addEventListener("click", async e => {
+  if (!S.me || !S.me.store || !e.target.closest("#exapp")) return;
+  const t = e.target, id = t.id;
+  const a = t.closest("[data-examb]");
+  if (a) { EXS.amb = S.me.roster.find(r => r.id === a.dataset.examb); EXS.step = "invoice"; EXS.invoices = null; renderEx();
+    try { EXS.invoices = (await exApi("invoices", { as: EXS.amb.id })).invoices; } catch (x) { EXS.invoices = { error: x.message }; } renderEx(); return; }
+  const iv = t.closest("[data-exinv]"); if (iv) { EXS.inv = EXS.invoices.find(i => i.invoiceId === iv.dataset.exinv); EXS.step = "form"; EXS.ret = {}; EXS.taken = []; EXS.hits = null; EXS.err = ""; renderEx(); return; }
+  if (id === "exBack") { exReset(); renderEx(); return; }
+  if (id === "exBackInv") { EXS.step = "invoice"; renderEx(); return; }
+  if (id === "exAgain") { exReset(); exApi("list").then(j => { EXS.recent = j.exchanges; renderEx(); }).catch(() => {}); renderEx(); return; }
+  const r = t.closest("[data-exret]"); if (r) { const l = EXS.inv.lines.find(x => x.itemId === r.dataset.exret); const q = Math.max(0, Math.min(l.left, (EXS.ret[l.itemId] || 0) + Number(r.dataset.d))); if (q) EXS.ret[l.itemId] = q; else delete EXS.ret[l.itemId]; renderEx(); return; }
+  const k = t.closest("[data-extake]"); if (k) { const it = EXS.taken[+k.dataset.extake]; it.qty += Number(k.dataset.d); if (it.qty <= 0) EXS.taken.splice(+k.dataset.extake, 1); renderEx(); return; }
+  const sg = t.closest("[data-exstyle]"); if (sg) { exLookup(sg.dataset.exstyle); return; }
+  if (id === "exFind") { const q = ($("exLook").value || "").trim(); if (q) exLookup(q); return; }
+  const ad = t.closest("[data-exadd]"); if (ad) { const h = EXS.hits.find(x => x.skuId === ad.dataset.exadd); const cur = EXS.taken.find(x => x.skuId === h.skuId);
+    if (cur) cur.qty++; else EXS.taken.push({ ...h, qty: 1 }); EXS.hits = null; EXS.look = ""; renderEx(); toast(`Added ${h.desc || h.style} ${h.size}`); return; }
+  if (id === "exSubmit") {
+    if (!(EXS.by || "").trim()) { EXS.err = "Add your name at the top first."; renderEx(); $("exBy")?.focus(); return; }
+    EXS.busy = "submit"; EXS.err = ""; renderEx();
+    try { const j = await exApi("submit", { as: EXS.amb.id, invoiceId: EXS.inv.invoiceId, takenFrom: EXS.takenFrom, returnedTo: EXS.returnedTo, by: EXS.by, notes: EXS.notes,
+        returned: Object.entries(EXS.ret).map(([itemId, qty]) => ({ itemId, qty })), taken: EXS.taken.map(x => ({ skuId: x.skuId, upc: x.upc, style: x.style, qty: x.qty })) });
+      EXS.done = j.exchange; }
+    catch (x) { EXS.err = x.message; }
+    EXS.busy = false; renderEx(); window.scrollTo(0, 0); return;
+  }
+});
+document.addEventListener("input", e => {
+  if (!S.me || !S.me.store) return;
+  const id = e.target.id;
+  if (id === "exQ") { EXS.q = e.target.value; const pos = e.target.selectionStart; renderEx(); const q = $("exQ"); q.focus(); q.setSelectionRange(pos, pos); }
+  else if (id === "exBy") { EXS.by = e.target.value; store.set("jas:exby", EXS.by); }
+  else if (id === "exNotes") EXS.notes = e.target.value;
+  else if (id === "exLook") { EXS.look = e.target.value; EXS.hits = null; const pos = e.target.selectionStart; renderEx(); const q = $("exLook"); q.focus(); q.setSelectionRange(pos, pos); }
+});
+document.addEventListener("change", e => {
+  if (!S.me || !S.me.store) return;
+  if (e.target.id === "exRet") EXS.returnedTo = e.target.value;
+  if (e.target.id === "exTake") { EXS.takenFrom = e.target.value; renderEx(); }
+});
+document.addEventListener("keydown", e => {   // barcode scanners type the UPC and press Enter
+  if (S.me && S.me.store && e.key === "Enter" && e.target.id === "exLook") { e.preventDefault(); const q = e.target.value.trim(); if (q) exLookup(q); }
+});
+
+/* Jetty Admin → Exchanges: approve / reject, and the Flagship staff link */
+let EXA = { list: null, link: "", busy: "" };
+async function loadExAdmin(){ try { EXA.list = (await exApi("list")).exchanges; } catch (e) { EXA.list = { error: e.message }; } renderProfile(); if (FOCUS) setTimeout(focusItem, 60); }
+function exAdminPanel(){
+  if (EXA.list === null) { EXA.list = "loading"; loadExAdmin(); }
+  const head = `<div class="ambh"><div class="pwho"><span class="av big dark">⇄</span><div><small>Flagship</small><h2>Exchanges</h2>
+      <p class="hint">Exchanges the Flagship staff submit. Approving creates the credit memo for the returned items and adds the taken items to the same invoice in AM.</p></div></div>
+      <div class="alinks"><button type="button" class="alink" id="exaLink">${EXA.link ? "Copy Flagship staff link" : "Show Flagship staff link"}</button>${EXA.link ? `<button type="button" class="link" id="exaReset">Replace link</button>` : ""}</div>
+      ${EXA.link ? `<div class="linkline"><span class="code">${esc(EXA.link)}</span></div>` : ""}</div>`;
+  if (EXA.list === "loading") return head + `<p class="hint pload">Loading…</p>`;
+  if (EXA.list.error) return head + `<p class="hint pload">${esc(EXA.list.error)}</p>`;
+  if (!EXA.list.length) return head + `<p class="hint pload">No exchanges yet.</p>`;
+  const ln = l => `<li>${l.qty} × ${exLine(l)}</li>`;
+  return head + EXA.list.map(x => `<article class="rcard excard st-${esc(x.status.toLowerCase().replace(/\s+/g,"-"))}" data-item="${esc(x.id)}">
+      <div class="rtop"><div><b>${esc(x.amb.n)}</b> <small>${esc(x.season)} · Invoice ${esc(x.invoiceId)}</small></div><span class="exst">${esc(x.status)}</span></div>
+      <p class="hint">${new Date(x.at).toLocaleString("en-US",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"})} · by ${esc(x.by)} · Returned to <b>${esc(x.returnedToName)}</b> · Taken from <b>${esc(x.takenFromName)}</b></p>
+      <div class="excols"><div><h4>Returned</h4><ul>${x.returned.map(ln).join("") || "<li>None</li>"}</ul></div><div><h4>Taken</h4><ul>${x.taken.map(ln).join("") || "<li>None</li>"}</ul></div></div>
+      ${x.notes ? `<p><b>Notes:</b> ${esc(x.notes)}</p>` : ""}
+      ${x.am && (x.am.log || []).length ? `<p class="hint">${x.am.log.map(esc).join("<br>")}</p>` : ""}
+      ${x.am && x.am.error ? `<div class="note">${esc(x.am.error)}</div>` : ""}${x.am && (x.am.warn || []).length ? `<div class="note">${x.am.warn.map(esc).join("<br>")}</div>` : ""}
+      ${["Pending", "Needs attention"].includes(x.status) ? `<div class="rbtns"><button type="button" class="primary small" data-exapprove="${esc(x.id)}"${EXA.busy ? " disabled" : ""}>${EXA.busy === x.id ? "Updating AM…" : x.status === "Pending" ? "Approve and update AM" : "Try AM again"}</button>${x.status === "Pending" ? `<button type="button" class="link" data-exreject="${esc(x.id)}">Reject</button>` : ""}</div>` : ""}
+    </article>`).join("");
+}
+async function exAdminClick(e){
+  const t = e.target;
+  if (t.id === "exaLink") { if (!EXA.link) { try { EXA.link = (await exApi("store-link")).link; } catch (x) { toast(x.message); } renderProfile(); }
+    else { try { await navigator.clipboard.writeText(EXA.link); toast("Flagship staff link copied"); } catch (x) { toast("Select the link and copy it"); } } return true; }
+  if (t.id === "exaReset") { if (!confirm("Replace the Flagship staff link? The old link stops working.")) return true; try { EXA.link = (await exApi("store-link", { reset: true })).link; toast("New link made"); } catch (x) { toast(x.message); } renderProfile(); return true; }
+  const ap = t.closest("[data-exapprove]");
+  if (ap) { EXA.busy = ap.dataset.exapprove; renderProfile();
+    try { const j = await exApi("approve", { id: ap.dataset.exapprove }); const i = EXA.list.findIndex(x => x.id === j.exchange.id); EXA.list[i] = j.exchange;
+      toast(j.exchange.status === "Approved" ? "Done. AM is updated" : "AM needs a look. See the note"); } catch (x) { toast(x.message); }
+    EXA.busy = ""; renderProfile(); return true; }
+  const rj = t.closest("[data-exreject]");
+  if (rj) { try { const j = await exApi("reject", { id: rj.dataset.exreject }); const i = EXA.list.findIndex(x => x.id === j.exchange.id); EXA.list[i] = j.exchange; } catch (x) { toast(x.message); } renderProfile(); return true; }
+  return false;
+}
+
 /* ===== Between seasons: "coming soon" page instead of the store (season.json storeOpen: false) ===== */
 // Hide department tabs this season has no products for
 document.querySelectorAll("#dept button[data-d]").forEach(b => { if (!PRODUCTS.some(p => p.dept === b.dataset.d)) b.hidden = true; });
@@ -2205,13 +2404,14 @@ async function loadAmImages(){
   S.me = await loadMe();
   if (!S.me) { $("whoNm").textContent = "—"; showGate();
     if (S.deep) $("gateP").textContent = "To open this from Slack, first open the Jetty Admin link once on this device. After that, Slack links open straight to the item."; return; }
+  if (S.me.store) { startExchangeApp(); return; }
   S.cart = store.get(K("cart")) || {};
   if (!CONFIG.storeOpen) showSoon();
   renderHeader(); renderChips(); renderGrid();
   loadSpent(); loadAmImages();
   if (S.deep) {
     if (!isStaff()) { toast("That link is for Jetty staff. Open the Jetty Admin link on this device first."); }
-    else { store.set(K("sizesAsked"), true); openProfile(); ADM.open = null; PTAB = S.deep.type === "REQ" ? "requests" : "upload"; REQ.filter = "All"; FOCUS = S.deep.id; renderProfile(); }
+    else { store.set(K("sizesAsked"), true); openProfile(); ADM.open = null; PTAB = S.deep.type === "REQ" ? "requests" : S.deep.type === "EX" ? "exchanges" : "upload"; REQ.filter = "All"; FOCUS = S.deep.id; renderProfile(); }
     return;
   }
   if (CONFIG.storeOpen && !store.get(K("sizesAsked"))) openSizes(true);
