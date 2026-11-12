@@ -1119,6 +1119,9 @@ function storeMe() { return { n: "Flagship Store", f: "Flagship", store: 1, id: 
 async function ambInvoices(amb) {   // invoices for this ambassador's AM customer + PO name, with what's still returnable per line
   const cid = await customerId(amb.amc);
   const rows = await amGet("invoices/", [{ field: "customer_id", operator: "=", value: cid }], { pagination: { page_size: 1000 } });
+  // Invoices often don't carry the PO, so take it from the order each invoice was made from.
+  const orderPo = new Map((await allOrders(cid)).map(o => [String(o.order_id), o.customer_po || ""]));
+  for (const i of rows) if (!seasonOfPo(i.customer_po) && i.order_id) i.customer_po = orderPo.get(String(i.order_id)) || i.customer_po;
   const mine = rows.filter(i => String(i.void || "0") !== "1" && seasonOfPo(i.customer_po) && !seasonOfPo(i.customer_po).test && poOwner(i.customer_po) === poOwner(amb.po));
   const out = [];
   for (const inv of mine.sort((a, b) => Number(b.invoice_id) - Number(a.invoice_id)).slice(0, 12)) {
@@ -1156,7 +1159,7 @@ async function applyExchange(x) {
   // 1) credit memo for the returned items, against this invoice, into "returned to"
   if (x.returned.length && !x.am.creditMemoId) {
     const header = { customer_id: String(inv.customer_id), invoice_id: String(inv.invoice_id), warehouse_id: x.returnedTo, division_id: String(inv.division_id || ""),
-      customer_po: inv.customer_po || "", pct_discount: String(inv.pct_discount || "0"), terms_id: String(inv.terms_id || ""),
+      customer_po: inv.customer_po || x.po || "", pct_discount: String(inv.pct_discount || "0"), terms_id: String(inv.terms_id || ""),
       date: new Date().toLocaleDateString("en-US", { timeZone: "America/New_York", month: "2-digit", day: "2-digit", year: "numeric" }),
       notes: `Ambassador exchange ${x.id} at Flagship (${x.by}). Returned to ${x.returnedToName}.` };
     const cmItems = x.returned.map(l => { const src = items.find(i => String(i.id) === l.itemId);

@@ -731,6 +731,10 @@ body.storemode>header.top,body.storemode>main,body.storemode>#soon{display:none!
 .st-approved .exst,.exst.st-approved{background:#e3f1e8;color:var(--ok)}.st-needs-attention .exst,.exst.st-needs-attention{background:var(--warn-soft);color:var(--warn)}.st-rejected .exst,.exst.st-rejected{color:var(--muted)}
 .excard .rtop{display:flex;justify-content:space-between;align-items:center;gap:10px}.excols{display:grid;grid-template-columns:1fr 1fr;gap:14px}.excols h4{margin:4px 0}.excols ul{margin:0;padding-left:18px;font-size:13.5px}
 @media(max-width:560px){.excols{grid-template-columns:1fr}}
+.opill{display:inline-block;font-size:11.5px;font-weight:600;padding:2px 9px;border-radius:999px;margin-left:8px;vertical-align:1px;white-space:nowrap}
+.op-wait{background:var(--tile);color:var(--muted)}.op-ship{background:var(--accent-soft);color:var(--slate)}.op-ready{background:var(--warn-soft);color:var(--warn)}.op-done{background:#e3f1e8;color:var(--ok)}
+.spills{display:inline-flex;flex-wrap:wrap;gap:4px;margin-left:4px}.spills .opill{margin-left:0}
+.scard.single .shead{cursor:default}
 </style></head><body>
 <header class="top">
   <div class="band">
@@ -1336,7 +1340,7 @@ function shipBox(o, asId){
   const where = sh.pickup ? esc(o.method) + (sh.pickedUpAt ? ` · ${new Date(sh.pickedUpAt).toLocaleDateString("en-US",{month:"short",day:"numeric"})}${sh.pickedUpBy === "Jetty staff" ? " (marked by Jetty)" : ""}` : "") : "";
   const btn = sh.canConfirm ? `<button type="button" class="pickbtn" data-pickup="${esc(o.amOrderId)}"${asId ? ` data-as="${esc(asId)}"` : ""}>Mark as picked up</button>` : "";
   return `<div class="ship st-${esc(sh.state || "processing")}"><span class="sico" aria-hidden="true">${icon}</span>
-    <div class="stx"><b>${esc(sh.label || "Processing")}</b>${o.shipDate ? ` <small>${esc(o.shipDate)}</small>` : ""}${where ? `<small>${where}</small>` : ""}
+    <div class="stx"><b>${esc(orderStatus(o).t)}</b>${o.shipDate ? ` <small>${esc(o.shipDate)}</small>` : ""}${where ? `<small>${where}</small>` : ""}
       ${tr.length ? tr.map(trackCard).join("")
         : (sh.state !== "processing" && !sh.pickup ? `<small>Tracking number not available yet.</small>` : "")}</div>${btn}</div>`;
 }
@@ -1357,25 +1361,39 @@ function trackCard(t){
       <ul class="trkev">${ev.map(x => `<li>${esc(x.msg)}<small>${esc([x.where, fmtWhen(x.at)].filter(Boolean).join(" · "))}</small></li>`).join("")}</ul></details>` : ""}
   </div>`;
 }
+/* One status per order: Not ready yet / Shipped / Partly shipped / Delivered / Ready for pickup / Picked up */
+function orderStatus(o){
+  const sh = o.ship || {}, tr = o.tracking || [];
+  if (sh.pickup) return sh.label === "Picked up" ? { t: "Picked up", c: "done" } : sh.state === "ready" ? { t: sh.label || "Ready for pickup", c: "ready" } : { t: "Not ready yet", c: "wait" };
+  const live = tr.map(t => t.live && t.live.status).filter(Boolean);
+  if ((sh.state === "shipped" || sh.state === "partial") && live.length && live.every(x => x === "delivered")) return { t: sh.state === "partial" ? "Partly delivered" : "Delivered", c: "done" };
+  if (sh.state === "shipped") return { t: "Shipped", c: "ship" };
+  if (sh.state === "partial") return { t: "Partly shipped", c: "ship" };
+  return { t: "Not ready yet", c: "wait" };
+}
+const statusPill = o => { const st = orderStatus(o); return `<span class="opill op-${st.c}">${esc(st.t)}</span>`; };
+function orderHTML(o, ns){
+  return `<div class="pord"><div class="pordh"><b>Order ${esc(o.amOrderId)}</b>${statusPill(o)}<span>${esc(o.date)} · ${o.units} units · ${money(o.retail)}</span></div>
+    ${shipBox(o, ns && ns.startsWith("a:") ? ns.slice(2) : "")}
+    ${o.items.map(it => { const th = thumbFor(it.style) || it.img || ""; return `<div class="pit">
+      <div class="pth">${th ? `<img src="${esc(th)}" alt="" loading="lazy" onerror="this.remove()">` : ""}</div>
+      <div class="pinfo"><b>${esc(it.desc || it.style)}</b><small>${esc((PRODUCTS.find(x => x.s === it.style) || {}).c || it.color)} · Size ${esc(it.size)} · <span class="code">${esc(it.style)}</span></small></div>
+      <div class="pq">× ${it.qty}<small>${money(it.qty * it.retail)}</small></div></div>`; }).join("")}
+  </div>`;
+}
 function seasonCard(s, ns){
   const key = (ns ? ns + "|" : "") + s.code;
-  const a = s.allowance, pct = a ? Math.min(100, s.spent / a * 100) : 0, over = a && s.spent > a, open = profOpen === key;
-  return `<article class="scard${open ? " open" : ""}${s.current ? " cur" : ""}">
-    <button type="button" class="shead" data-season="${esc(key)}" aria-expanded="${open}">
-      <span class="stitle"><b>${esc(s.label)}</b>${s.current ? `<em>Current season</em>` : ""}</span>
+  const a = s.allowance, pct = a ? Math.min(100, s.spent / a * 100) : 0, over = a && s.spent > a;
+  const many = s.orders.length > 1, open = !many || profOpen === key;   // one order (or none): always shown; several: tap to open
+  const head = `<span class="stitle"><b>${esc(s.label)}</b>${s.current ? `<em>Current season</em>` : ""}</span>
       <span class="snums"><b>${money(s.spent)}</b>${a ? ` of ${money(a)}` : ""} retail</span>
       ${a ? `<span class="meter${over ? " over" : ""}"><i class="used" style="width:${pct}%"></i></span>` : ""}
-      <span class="smeta">${s.orders.length} order${s.orders.length === 1 ? "" : "s"} · ${s.units} units${a ? (over ? ` · <span class="o">${money(s.spent - a)} over</span>` : ` · ${money(a - s.spent)} left`) : ""}</span>
-      <span class="chev" aria-hidden="true">${open ? "−" : "+"}</span>
-    </button>
-    ${open ? `<div class="sbody">${s.orders.length ? s.orders.map(o => `
-      <div class="pord"><div class="pordh"><b>Order ${esc(o.amOrderId)}</b><span>${esc(o.date)} · ${o.units} units · ${money(o.retail)}</span></div>
-        ${shipBox(o, ns && ns.startsWith("a:") ? ns.slice(2) : "")}
-        ${o.items.map(it => { const th = thumbFor(it.style) || it.img || ""; return `<div class="pit">
-          <div class="pth">${th ? `<img src="${esc(th)}" alt="" loading="lazy" onerror="this.remove()">` : ""}</div>
-          <div class="pinfo"><b>${esc(it.desc || it.style)}</b><small>${esc((PRODUCTS.find(x => x.s === it.style) || {}).c || it.color)} · Size ${esc(it.size)} · <span class="code">${esc(it.style)}</span></small></div>
-          <div class="pq">× ${it.qty}<small>${money(it.qty * it.retail)}</small></div></div>`; }).join("")}
-      </div>`).join("") : `<p class="hint">No orders yet this season.</p>`}</div>` : ""}
+      <span class="smeta">${s.orders.length} order${s.orders.length === 1 ? "" : "s"} · ${s.units} units${a ? (over ? ` · <span class="o">${money(s.spent - a)} over</span>` : ` · ${money(a - s.spent)} left`) : ""}
+        ${many ? `<span class="spills">${s.orders.map(statusPill).join("")}</span>` : ""}</span>`;
+  return `<article class="scard${open ? " open" : ""}${many ? "" : " single"}${s.current ? " cur" : ""}">
+    ${many ? `<button type="button" class="shead" data-season="${esc(key)}" aria-expanded="${open}">${head}<span class="chev" aria-hidden="true">${open ? "−" : "+"}</span></button>`
+           : `<div class="shead">${head}</div>`}
+    ${open ? `<div class="sbody">${s.orders.length ? s.orders.map(o => orderHTML(o, ns)).join("") : `<p class="hint">No orders yet this season.</p>`}</div>` : ""}
   </article>`;
 }
 /* Staff (Jetty Admin): ambassador list in a left side panel; selecting one shows their seasons on the right */
