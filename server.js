@@ -1136,15 +1136,18 @@ async function ambInvoices(amb) {   // invoices for this ambassador's AM custome
         size: it.size || "", qty: Number(it.qty || 0), left: Math.max(0, Number(it.qty || 0) - (credited[String(it.id)] || 0)), price: Number(it.unit_price || 0), wh: String(it.warehouse_id || "") }))
         .filter(l => l.qty > 0) });
   }
+  try { const im = await productImages(out.flatMap(i => i.lines.map(l => l.style))); out.forEach(i => i.lines.forEach(l => { l.img = im[l.style] || ""; })); } catch (e) {}
   return out;
 }
 async function skuLookup(q) {   // UPC (scanned or typed) or exact style number -> sizes with retail price and store stock
   q = String(q || "").trim().toUpperCase(); if (!q) return [];
   const field = /^\d{11,14}$/.test(q) ? "upc_display" : "style_number";
   const rows = await amGet("inventory/", [{ field, operator: "=", value: q }], { pagination: { page_size: 200 } });
-  return rows.filter(r => String(r.active ?? "1") === "1").map(r => ({ skuId: String(r.sku_id), upc: r.upc_display || "", style: r.style_number || "", desc: r.description || "",
+  const list = rows.filter(r => String(r.active ?? "1") === "1").map(r => ({ skuId: String(r.sku_id), upc: r.upc_display || "", style: r.style_number || "", desc: r.description || "",
     color: r.attr_2 || "", colorName: r.attr_2_name || "", size: r.size || "", price: Number(r.retail_price || 0), pos: Number(r.size_position || 0),
     stock: { "DTC - Flagship 176": r.flagship_qty, "DTC - Long Branch": r.long_branch_qty } })).sort((a, b) => a.style.localeCompare(b.style) || a.pos - b.pos);
+  try { const im = await productImages(list.map(x => x.style)); list.forEach(x => { x.img = im[x.style] || ""; }); } catch (e) {}
+  return list;
 }
 function exSlackBlocks(x, title) {
   const it = l => `${l.qty} × ${l.desc || l.style} ${l.color} ${l.size}`.replace(/\s+/g, " ");

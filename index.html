@@ -735,6 +735,12 @@ body.storemode>header.top,body.storemode>main,body.storemode>#soon{display:none!
 .op-wait{background:var(--tile);color:var(--muted)}.op-ship{background:var(--accent-soft);color:var(--slate)}.op-ready{background:var(--warn-soft);color:var(--warn)}.op-done{background:#e3f1e8;color:var(--ok)}
 .spills{display:inline-flex;flex-wrap:wrap;gap:4px;margin-left:4px}.spills .opill{margin-left:0}
 .scard.single .shead{cursor:default}
+.exth{width:44px;flex:none;aspect-ratio:4/5;background:var(--tile);border-radius:4px;overflow:hidden;display:block}.exth img{width:100%;height:100%;object-fit:cover;display:block}
+.exl{justify-content:flex-start}.exl .exn{flex:1;min-width:0}.exl.tap{cursor:pointer;user-select:none}.exl.tap:hover{border-color:var(--slate)}.exl.off{opacity:.6}
+.exhit{display:flex;gap:10px;align-items:flex-start}
+.exsug{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:6px}
+.exsugb{all:unset;box-sizing:border-box;cursor:pointer;display:flex;gap:10px;align-items:center;padding:6px 8px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface)}
+.exsugb:hover{border-color:var(--slate)}.exsugb b{display:block;font-size:13.5px}.exsugb small{font-size:12px;color:var(--muted)}
 </style></head><body>
 <header class="top">
   <div class="band">
@@ -2241,7 +2247,9 @@ async function exApi(action, extra){
   const j = await r.json().catch(() => ({})); if (!r.ok || !j.ok) throw new Error(j.error || "Something went wrong. Try again."); return j;
 }
 let EXS = { step: "people", q: "", amb: null, invoices: null, inv: null, wh: [], takenFrom: "", returnedTo: "", ret: {}, taken: [], look: "", hits: null, busy: false, err: "", notes: "", done: null, recent: null };
-const exLine = l => `${esc(l.desc || exName(l.style) || l.style)} <small>${esc(l.color)} · ${esc(l.size)}</small>`;
+const exImg = x => thumbFor(x.style) || x.img || "";
+const exThumb = x => { const u = exImg(x); return `<span class="exth">${u ? `<img src="${esc(u)}" alt="" loading="lazy" onerror="this.remove()">` : ""}</span>`; };
+const exLine = l => `${esc(l.desc || exName(l.style) || l.style)} <small>${esc(l.color)} · ${esc(l.size)} · <span class="code">${esc(l.style)}</span></small>`;
 function exName(style){ const p = PRODUCTS.find(x => x.s === style); return p ? p.d : ""; }
 function startExchangeApp(){
   document.body.classList.add("storemode"); $("exapp").hidden = false;
@@ -2274,13 +2282,14 @@ function renderEx(){
       <h2 class="exh">${esc(EXS.amb.n)} · ${esc(inv.season)} <small>Invoice ${esc(inv.invoiceId)}</small></h2>
       <div class="exwh"><label class="f"><span>Returned items go back to</span>${whSel("exRet", EXS.returnedTo)}</label><label class="f"><span>New items are taken from</span>${whSel("exTake", EXS.takenFrom)}</label></div>
       <h3 class="psec">Items being returned <small>${retN}</small></h3>
-      <div class="exlines">${inv.lines.map(l => { const q = EXS.ret[l.itemId] || 0; return `<div class="exl${q ? " on" : ""}"><span class="exn">${exLine(l)}</span>
+      <p class="hint">Tap an item to add one. Use − to take one off.</p>
+      <div class="exlines">${inv.lines.map(l => { const q = EXS.ret[l.itemId] || 0; return `<div class="exl${q ? " on" : ""}${l.left ? " tap" : " off"}"${l.left ? ` data-exretcard="${esc(l.itemId)}"` : ""}>${exThumb(l)}<span class="exn">${exLine(l)}</span>
         ${l.left ? `<div class="step"><button type="button" data-exret="${esc(l.itemId)}" data-d="-1" aria-label="One fewer">−</button><span>${q}</span><button type="button" data-exret="${esc(l.itemId)}" data-d="1" aria-label="One more"${q >= l.left ? " disabled" : ""}>+</button></div>` : `<small class="hint">Already returned</small>`}</div>`; }).join("")}</div>
       <h3 class="psec">Items being taken <small>${takeN}</small></h3>
       <div class="exlook"><input id="exLook" placeholder="Scan the tag, or type a UPC, style number or product name" value="${esc(EXS.look)}" autocomplete="off"><button type="button" class="alink" id="exFind">${EXS.busy === "look" ? "Finding…" : "Find"}</button></div>
       ${exSuggest()}
       ${EXS.hits ? (EXS.hits.length ? `<div class="exhits">${exHitsHTML()}</div>` : `<p class="hint">Nothing in AM matches “${esc(EXS.look)}”. Try the UPC from the tag.</p>`) : ""}
-      <div class="exlines">${EXS.taken.map((t, i) => `<div class="exl on"><span class="exn">${exLine(t)}</span><div class="step"><button type="button" data-extake="${i}" data-d="-1" aria-label="One fewer">−</button><span>${t.qty}</span><button type="button" data-extake="${i}" data-d="1" aria-label="One more">+</button></div></div>`).join("") || `<p class="hint">Nothing added yet.</p>`}</div>
+      <div class="exlines">${EXS.taken.map((t, i) => `<div class="exl on tap" data-extakecard="${i}">${exThumb(t)}<span class="exn">${exLine(t)}</span><div class="step"><button type="button" data-extake="${i}" data-d="-1" aria-label="One fewer">−</button><span>${t.qty}</span><button type="button" data-extake="${i}" data-d="1" aria-label="One more">+</button></div></div>`).join("") || `<p class="hint">Nothing added yet.</p>`}</div>
       <label class="f"><span>Notes (optional)</span><textarea id="exNotes" rows="2">${esc(EXS.notes)}</textarea></label>
       ${EXS.err ? `<div class="note">${esc(EXS.err)}</div>` : ""}
       <button type="button" class="primary" id="exSubmit"${EXS.busy === "submit" || !(retN || takeN) ? " disabled" : ""}>${EXS.busy === "submit" ? "Sending…" : `Submit exchange (${retN} returned, ${takeN} taken)`}</button>
@@ -2293,13 +2302,13 @@ function renderEx(){
 function exSuggest(){
   const q = EXS.look.trim().toLowerCase(); if (q.length < 3 || /^\d+$/.test(q) || EXS.hits) return "";
   const m = PRODUCTS.filter(p => (p.d + " " + p.c + " " + p.s).toLowerCase().includes(q)).slice(0, 8);
-  return m.length ? `<div class="exsug">${m.map(p => `<button type="button" class="chip" data-exstyle="${esc(p.s)}">${esc(p.d)} · ${esc(p.c)}</button>`).join("")}</div>` : "";
+  return m.length ? `<div class="exsug">${m.map(p => `<button type="button" class="exsugb" data-exstyle="${esc(p.s)}">${exThumb({ style: p.s })}<span><b>${esc(p.d)}</b><small>${esc(p.c)} · <span class="code">${esc(p.s)}</span></small></span></button>`).join("")}</div>` : "";
 }
 function exHitsHTML(){
   const twh = (EXS.wh.find(w => w.id === EXS.takenFrom) || {}).name || "";
   const by = new Map(); EXS.hits.forEach(h => { if (!by.has(h.style)) by.set(h.style, []); by.get(h.style).push(h); });
-  return [...by.entries()].map(([st, hs]) => `<div class="exhit"><b>${esc(hs[0].desc || exName(st) || st)}</b> <small>${esc(hs[0].colorName || hs[0].color)} · ${esc(st)}</small>
-    <div class="exsz">${hs.map(h => { const stock = h.stock && h.stock[twh]; return `<button type="button" class="szb" data-exadd="${esc(h.skuId)}">${esc(h.size)}${stock != null && stock !== "" ? `<small>${Math.max(0, parseInt(stock, 10) || 0)} here</small>` : ""}</button>`; }).join("")}</div></div>`).join("");
+  return [...by.entries()].map(([st, hs]) => `<div class="exhit">${exThumb(hs[0])}<div><b>${esc(hs[0].desc || exName(st) || st)}</b> <small>${esc(hs[0].colorName || hs[0].color)} · <span class="code">${esc(st)}</span></small>
+    <div class="exsz">${hs.map(h => { const stock = h.stock && h.stock[twh]; return `<button type="button" class="szb" data-exadd="${esc(h.skuId)}">${esc(h.size)}${stock != null && stock !== "" ? `<small>${Math.max(0, parseInt(stock, 10) || 0)} here</small>` : ""}</button>`; }).join("")}</div></div></div>`).join("");
 }
 async function exLookup(q){
   EXS.look = q; EXS.busy = "look"; EXS.hits = null; renderEx();
@@ -2317,6 +2326,10 @@ document.addEventListener("click", async e => {
   if (id === "exBackInv") { EXS.step = "invoice"; renderEx(); return; }
   if (id === "exAgain") { exReset(); exApi("list").then(j => { EXS.recent = j.exchanges; renderEx(); }).catch(() => {}); renderEx(); return; }
   const r = t.closest("[data-exret]"); if (r) { const l = EXS.inv.lines.find(x => x.itemId === r.dataset.exret); const q = Math.max(0, Math.min(l.left, (EXS.ret[l.itemId] || 0) + Number(r.dataset.d))); if (q) EXS.ret[l.itemId] = q; else delete EXS.ret[l.itemId]; renderEx(); return; }
+  if (!t.closest("button")) {
+    const rc = t.closest("[data-exretcard]"); if (rc) { const l = EXS.inv.lines.find(x => x.itemId === rc.dataset.exretcard); const q = EXS.ret[l.itemId] || 0; if (q < l.left) { EXS.ret[l.itemId] = q + 1; renderEx(); } else toast(`Only ${l.left} on this order`); return; }
+    const tc = t.closest("[data-extakecard]"); if (tc) { EXS.taken[+tc.dataset.extakecard].qty++; renderEx(); return; }
+  }
   const k = t.closest("[data-extake]"); if (k) { const it = EXS.taken[+k.dataset.extake]; it.qty += Number(k.dataset.d); if (it.qty <= 0) EXS.taken.splice(+k.dataset.extake, 1); renderEx(); return; }
   const sg = t.closest("[data-exstyle]"); if (sg) { exLookup(sg.dataset.exstyle); return; }
   if (id === "exFind") { const q = ($("exLook").value || "").trim(); if (q) exLookup(q); return; }
