@@ -1312,6 +1312,12 @@ http.createServer(async (req, res) => {
       return send(res, 200, { ok: true });
     }
     // Everything except the login page's own logo/pattern needs the site password.
+    if (url.pathname === "/manifest.webmanifest" && /^[A-Z0-9]{8,32}$/.test(url.searchParams.get("k") || "")) {
+      // "Add to Home Screen" from someone's link: the icon opens straight to that link (iPad home-screen apps don't share Safari's saved link)
+      try { const m = JSON.parse(fs.readFileSync(path.join(ROOT, "manifest.webmanifest"), "utf8")); m.start_url = "/#" + url.searchParams.get("k"); m.id = "/";
+        if (RSTATE.store && url.searchParams.get("k") === RSTATE.store.code) { m.name = "Jetty Exchanges"; m.short_name = "Exchanges"; }
+        return send(res, 200, JSON.stringify(m), "application/manifest+json"); } catch (e) {}
+    }
     if (url.pathname === "/favicon.ico") return fs.readFile(path.join(ROOT, "brand/favicon-48.png"), (e, b) => send(res, e ? 404 : 200, e ? "" : b, "image/png"));
     if (!isAuthed(req) && !/^\/(brand\/[^/]+\.png|manifest\.webmanifest)$/.test(url.pathname)) {
       if (url.pathname.startsWith("/api/")) return send(res, 401, { ok: false, error: "Please sign in again." });

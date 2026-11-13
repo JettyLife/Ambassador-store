@@ -741,6 +741,7 @@ body.storemode>header.top,body.storemode>main,body.storemode>#soon{display:none!
 .exsug{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:6px}
 .exsugb{all:unset;box-sizing:border-box;cursor:pointer;display:flex;gap:10px;align-items:center;padding:6px 8px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface)}
 .exsugb:hover{border-color:var(--slate)}.exsugb b{display:block;font-size:13.5px}.exsugb small{font-size:12px;color:var(--muted)}
+.gatepaste{display:flex;gap:8px;margin:10px 0 4px}.gatepaste input{flex:1;border:1px solid var(--line);border-radius:var(--r);padding:9px 10px;font-size:15px;background:var(--bg)}
 </style></head><body>
 <header class="top">
   <div class="band">
@@ -811,6 +812,7 @@ body.storemode>header.top,body.storemode>main,body.storemode>#soon{display:none!
     <div class="brand"><span class="wm"><b>Jetty</b><img class="coin" src="brand/logo-slate.png" alt="" width="40" height="40"></span><span id="gateSeason">Ambassador</span></div>
     <h2 id="gateH">Use your personal link</h2>
     <p id="gateP">This store opens from the personal link in your invitation email. Open that email and tap the link to start your order.</p>
+    <form class="gatepaste" id="gatePaste"><input id="gateLink" placeholder="Or paste your link here" autocomplete="off"><button type="submit" class="primary small">Open</button></form>
     <p class="hint" id="gateC"></p>
   </div>
 </div>
@@ -890,6 +892,7 @@ async function loadMe(){
       if (location.hash.replace("#","").toUpperCase() !== code) history.replaceState(null, "", "#" + code);
     }
     S.code = code;
+    if (!S.viewing) { const ml = document.querySelector('link[rel="manifest"]'); if (ml) ml.href = "manifest.webmanifest?k=" + code; }
     return me;
   } catch(e) { return null; }
 }
@@ -2281,7 +2284,7 @@ function renderEx(){
       <h2 class="exh">${esc(EXS.amb.n)} · ${esc(inv.season)} <small>Invoice ${esc(inv.invoiceId)}</small></h2>
       <div class="exwh"><label class="f"><span>Returned items go back to</span>${whSel("exRet", EXS.returnedTo)}</label><label class="f"><span>New items are taken from</span>${whSel("exTake", EXS.takenFrom)}</label></div>
       <h3 class="psec">Items being returned <small>${retN}</small></h3>
-      <p class="hint">Tap an item to add one. Use − to take one off.</p>
+      <p class="hint">Scan tags with the barcode scanner, or tap an item to add one. Scanned items that are on this order count as returned; anything else counts as taken. Use − to take one off.</p>
       <div class="exlines">${inv.lines.map(l => { const q = EXS.ret[l.itemId] || 0; return `<div class="exl${q ? " on" : ""}${l.left ? " tap" : " off"}"${l.left ? ` data-exretcard="${esc(l.itemId)}"` : ""}>${exThumb(l)}<span class="exn">${exLine(l)}</span>
         ${l.left ? `<div class="step"><button type="button" data-exret="${esc(l.itemId)}" data-d="-1" aria-label="One fewer">−</button><span>${q}</span><button type="button" data-exret="${esc(l.itemId)}" data-d="1" aria-label="One more"${q >= l.left ? " disabled" : ""}>+</button></div>` : `<small class="hint">Already returned</small>`}</div>`; }).join("")}</div>
       <h3 class="psec">Items being taken <small>${takeN}</small></h3>
@@ -2358,8 +2361,42 @@ document.addEventListener("change", e => {
   if (e.target.id === "exTake") { EXS.takenFrom = e.target.value; renderEx(); }
 });
 document.addEventListener("keydown", e => {   // barcode scanners type the UPC and press Enter
-  if (S.me && S.me.store && e.key === "Enter" && e.target.id === "exLook") { e.preventDefault(); const q = e.target.value.trim(); if (q) exLookup(q); }
+  if (S.me && S.me.store && e.key === "Enter" && e.target.id === "exLook") { e.preventDefault(); const q = e.target.value.trim(); if (/^\d{11,14}$/.test(q)) exScan(q); else if (q) exLookup(q); }
 });
+
+
+/* Gate: paste a personal link (needed once when the site is opened from a home-screen icon that lost it) */
+$("gatePaste").addEventListener("submit", e => { e.preventDefault(); const m = ($("gateLink").value || "").toUpperCase().match(/([A-Z0-9]{8,32})\s*$/);
+  if (m) { location.hash = m[1]; } else toast("That doesn't look like a Jetty Ambassador link"); });
+
+/* Barcode scanners (Socket Mobile etc. in keyboard/HID mode) type the UPC and press Enter very fast.
+   On the exchange screen a scan works wherever the cursor is: it goes to "returned" if that item is on the order, otherwise to "taken". */
+const SCAN = { buf: "", t: 0, start: 0, el: null };
+document.addEventListener("keydown", e => {
+  if (!S.me || !S.me.store || $("exapp").hidden) return;
+  const now = Date.now();
+  if (e.key === "Enter") {
+    const fast = SCAN.buf.length >= 8 && (now - SCAN.start) / SCAN.buf.length < 45 && /^\d+$/.test(SCAN.buf);
+    if (fast) { e.preventDefault(); e.stopPropagation();
+      const el = SCAN.el, code = SCAN.buf;
+      if (el && "value" in el && el.value.endsWith(code)) { el.value = el.value.slice(0, -code.length); el.dispatchEvent(new Event("input", { bubbles: true })); }
+      SCAN.buf = ""; exScan(code); return; }
+    SCAN.buf = ""; return;
+  }
+  if (e.key.length === 1) { if (now - SCAN.t > 80) { SCAN.buf = ""; SCAN.start = now; SCAN.el = document.activeElement; } SCAN.buf += e.key; SCAN.t = now; }
+}, true);
+async function exScan(upc){
+  if (EXS.step !== "form" || !EXS.inv) { toast("Pick the ambassador and their order first, then scan."); return; }
+  EXS.busy = "look"; renderEx();
+  let hits = [];
+  try { hits = (await exApi("lookup", { q: upc })).items.filter(h => h.upc === upc); } catch (e) { EXS.busy = false; renderEx(); toast(e.message); return; }
+  EXS.busy = false;
+  if (hits.length !== 1) { EXS.look = upc; EXS.hits = hits; renderEx(); if (!hits.length) toast("That barcode isn't in AM"); return; }
+  const h = hits[0], line = EXS.inv.lines.find(l => l.skuId === h.skuId && l.left > (EXS.ret[l.itemId] || 0));
+  if (line) { EXS.ret[line.itemId] = (EXS.ret[line.itemId] || 0) + 1; toast(`Returned: ${h.desc || h.style} ${h.size}`); }
+  else { const cur = EXS.taken.find(x => x.skuId === h.skuId); if (cur) cur.qty++; else EXS.taken.push({ ...h, qty: 1 }); toast(`Taken: ${h.desc || h.style} ${h.size}`); }
+  EXS.hits = null; EXS.look = ""; renderEx();
+}
 
 /* Jetty Admin → Exchanges: approve / reject, and the Flagship staff link */
 let EXA = { list: null, link: "", busy: "" };
