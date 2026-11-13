@@ -2036,7 +2036,7 @@ $("profBody").addEventListener("click", e => {
   if (e.target.id === "rq-cancel") { readDraft(); REQ.form = false; REQ.err = ""; renderProfile(); return; }
   const ce = e.target.closest("[data-ctedit]"); if (ce) { const c = CT[ce.dataset.ctedit]; c.edit = true; c.msg = ""; renderProfile(); return; }
   const cc = e.target.closest("[data-ctcancel]"); if (cc) { const w = cc.dataset.ctcancel; CT[w] = {}; loadContact(w).catch(()=>{}).finally(renderProfile); renderProfile(); return; }
-  if (PTAB === "exchanges" && !ADM.open && e.target.closest("#exaLink,#exaReset,[data-exapprove],[data-exreject]")) { exAdminClick(e); return; }
+  if (PTAB === "exchanges" && !ADM.open && e.target.closest("#exaLink,#exaReset,[data-exapprove],[data-exreject],[data-exdelete]")) { exAdminClick(e); return; }
   if (e.target.id === "rosterRefresh") { if (!ROSTER_BUSY) refreshRosterNow(); return; }
   if (e.target.id === "histRefresh") { PROF = null; renderProfile(); loadProfile(true); return; }
   const ar = e.target.closest("[data-ambrefresh]"); if (ar) { delete ADM.data[ar.dataset.ambrefresh]; renderProfile(); loadAmb(ar.dataset.ambrefresh, true); return; }
@@ -2434,7 +2434,7 @@ function exAdminPanel(){
   if (!EXA.list.length) return head + `<p class="hint pload">No exchanges yet.</p>`;
   const ln = l => `<li>${l.qty} × ${exLine(l)}</li>`;
   return head + EXA.list.map(x => `<article class="rcard excard st-${esc(x.status.toLowerCase().replace(/\s+/g,"-"))}" data-item="${esc(x.id)}">
-      <div class="rtop"><div><b>${esc(x.amb.n)}</b> <small>${esc(x.season)} · Invoice ${esc(x.invoiceId)}</small></div><span class="exst">${esc(x.status)}</span></div>
+      <div class="rtop"><div><b>${esc(x.amb.n)}</b> <small>${esc(x.season)} · Invoice ${esc(x.invoiceId)}</small></div><span><span class="exst">${esc(x.status)}</span> <button type="button" class="link" data-exdelete="${esc(x.id)}" title="Remove from this list. Doesn't change anything in AM.">Delete</button></span></div>
       <p class="hint">${new Date(x.at).toLocaleString("en-US",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"})} · by ${esc(x.by)} · Returned to <b>${esc(x.returnedToName)}</b> · Taken from <b>${esc(x.takenFromName)}</b></p>
       <div class="excols"><div><h4>Returned · ${money(exVal(x.returned))}</h4><ul>${x.returned.map(ln).join("") || "<li>None</li>"}</ul></div><div><h4>Taken · ${money(exVal(x.taken))}</h4><ul>${x.taken.map(ln).join("") || "<li>None</li>"}</ul></div></div>
       ${x.notes ? `<p><b>Notes:</b> ${esc(x.notes)}</p>` : ""}
@@ -2454,6 +2454,10 @@ async function exAdminClick(e){
     try { const j = await exApi("approve", { id: ap.dataset.exapprove }); const i = EXA.list.findIndex(x => x.id === j.exchange.id); EXA.list[i] = j.exchange;
       toast(j.exchange.status === "Approved" ? "Done. AM is updated" : "AM needs a look. See the note"); } catch (x) { toast(x.message); }
     EXA.busy = ""; renderProfile(); return true; }
+  const dl = t.closest("[data-exdelete]");
+  if (dl) { const x = EXA.list.find(e => e.id === dl.dataset.exdelete);
+    if (!confirm(`Delete ${x.amb.n}'s exchange from this list?${x.status === "Approved" ? " This doesn't undo the credit memo or invoice changes in AM." : ""}`)) return true;
+    try { await exApi("delete", { id: x.id }); EXA.list = EXA.list.filter(e => e.id !== x.id); toast("Exchange deleted"); } catch (y) { toast(y.message); } renderProfile(); return true; }
   const rj = t.closest("[data-exreject]");
   if (rj) { try { const j = await exApi("reject", { id: rj.dataset.exreject }); const i = EXA.list.findIndex(x => x.id === j.exchange.id); EXA.list[i] = j.exchange; } catch (x) { toast(x.message); } renderProfile(); return true; }
   return false;

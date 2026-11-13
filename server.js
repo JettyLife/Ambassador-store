@@ -1436,6 +1436,7 @@ http.createServer(async (req, res) => {
           return send(res, 200, { ok: true, link: `${SITE()}/#${RSTATE.store.code}` });
         }
         const list = readEx(), x = list.find(e => e.id === String(body.id)); if (!x) return send(res, 404, { ok: false });
+        if (action === "delete") { writeEx(list.filter(e => e.id !== x.id)); console.log(JSON.stringify({ event: "exchange_deleted", id: x.id, amb: x.amb.n, status: x.status })); return send(res, 200, { ok: true }); }
         if (action === "reject") { x.status = "Rejected"; x.decidedAt = new Date().toISOString(); writeEx(list); return send(res, 200, { ok: true, exchange: x }); }
         if (action === "approve") {
           if (x.status === "Approved") return send(res, 200, { ok: true, exchange: x });
