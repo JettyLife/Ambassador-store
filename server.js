@@ -61,7 +61,6 @@ const SEASON = JSON.parse(fs.readFileSync(path.join(ROOT, "season.json"), "utf8"
 const CATALOG = JSON.parse(fs.readFileSync(path.join(ROOT, "catalog.json"), "utf8")); // upc -> {s,size,p,d,c,a}
 
 const PICKUP = {
-  "pickup-dc":   { label: "Pickup - Jetty Distribution",   addr: "700 S Main St, West Creek, NJ 08092" },
   "pickup-flag": { label: "Pickup - Jetty Flagship Store", addr: "176 E Bay Ave 1st Floor, Manahawkin, NJ 08050" },
 };
 
