@@ -500,7 +500,7 @@ async function postSlack(text, blocks) {
 // Who gets @-mentioned per alert. Railway variable SLACK_MENTIONS overrides, e.g.
 // "requests:U0C9M2Q15GC;uploads:U0C9M2Q15GC;pending:U0C9M2Q15GC,UM3REF944;orders:" (Slack member IDs; Jon = U0C9M2Q15GC, Arlynn = U0BPU0W4BCK, Jerm = U4UAC501F, Tyler = UM3REF944)
 const SLACK_MENTIONS = (() => {
-  const m = { requests: ["U0C9M2Q15GC", "U0BPU0W4BCK"], uploads: ["U0C9M2Q15GC", "U0BPU0W4BCK"], pending: ["U0C9M2Q15GC", "U0BPU0W4BCK", "U4UAC501F"], orders: [], exchanges: ["UM3REF944"] };
+  const m = { requests: ["U0C9M2Q15GC", "U0BPU0W4BCK"], uploads: ["U0C9M2Q15GC", "U0BPU0W4BCK"], pending: ["U0C9M2Q15GC", "U0BPU0W4BCK", "U4UAC501F"], orders: [], exchanges: ["UM3REF944", "U0BPU0W4BCK"] };
   for (const part of String(process.env.SLACK_MENTIONS || "").split(";")) {
     const [k, v] = part.split(":"); if (!k || !(k.trim().toLowerCase() in m) || v === undefined) continue;
     m[k.trim().toLowerCase()] = v.split(",").map(x => x.trim()).filter(x => /^[UW][A-Z0-9]{6,}$/.test(x));
