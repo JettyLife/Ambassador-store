@@ -1069,6 +1069,7 @@ function unlock(code) {
   saveRState(); indexCodes();   // next time this code is found directly
   return ambRecord(got);
 }
+setTimeout(() => productIndex().catch(() => {}), 5000);
 const rosterReady = refreshRoster(); setInterval(refreshRoster, 5 * 60 * 1000);
 
 /* ---------- contact info + shipping instructions (read from / written to the AM customer; nothing stored here) ---------- */
@@ -1148,11 +1149,56 @@ async function skuLookup(q) {   // UPC (scanned or typed) or exact style number 
   try { const im = await productImages(list.map(x => x.style)); list.forEach(x => { x.img = im[x.style] || ""; }); } catch (e) {}
   return list;
 }
+/* Product name search for exchanges: every active AM style, refreshed twice a day (AM can only match exact values, so we search here). */
+let PIDX = { at: 0, list: readJson(path.join(DATA_DIR, "product-index.json"), []), job: null };
+async function amGetAll(endpoint, params = []) {
+  const out = []; let last = null;
+  for (let page = 0; page < 40; page++) {
+    const pag = { page_size: 1000 }; if (last) pag.last_id = String(last);
+    const r = await fetch(AM_BASE + endpoint + "?" + qs({ ...auth(), ...(params.length ? { parameters: params } : {}), pagination: pag }), { headers: { "User-Agent": UA, Accept: "application/json" } });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(`AM GET ${endpoint} failed (${r.status})`);
+    out.push(...(j.response || [])); last = j.meta?.pagination?.last_id; if (!last || !(j.response || []).length) break;
+  }
+  return out;
+}
+async function productIndex() {
+  if (PIDX.list.length && Date.now() - PIDX.at < 12 * 36e5) return PIDX.list;
+  if (!PIDX.job) PIDX.job = (async () => {
+    try {
+      const rows = await amGetAll("products/");
+      PIDX.list = rows.filter(r => String(r.skus_active ?? "1") === "1" && String(r.is_product ?? "1") === "1" && r.style_number)
+        .map(r => ({ s: String(r.style_number).trim(), d: String(r.description || "").trim(), c: String(r.web_title || "").split(" - ").slice(1).join(" - ").trim(),
+          season: String(r.season || ""), id: Number(r.product_id) || 0, img: findImageUrl(r.images) || "" }))
+        .sort((a, b) => b.id - a.id);
+      PIDX.at = Date.now(); writeJson(path.join(DATA_DIR, "product-index.json"), PIDX.list);
+    } catch (e) { console.error(JSON.stringify({ event: "product_index_failed", error: e.message })); if (PIDX.list.length) PIDX.at = Date.now() - 11 * 36e5; }
+    finally { PIDX.job = null; }
+  })();
+  if (!PIDX.list.length) await PIDX.job;
+  return PIDX.list;
+}
+async function productSuggest(q) {
+  const words = String(q || "").toLowerCase().split(/\s+/).filter(Boolean); if (!words.length) return [];
+  const list = await productIndex();
+  const hits = [];
+  for (const p of list) {
+    const hay = (p.d + " " + p.c + " " + p.s).toLowerCase();
+    if (!words.every(w => hay.includes(w))) continue;
+    const score = (p.d.toLowerCase().startsWith(words[0]) ? 0 : 1) + (p.s.toLowerCase().startsWith(words[0]) ? -1 : 0);
+    hits.push({ ...p, score }); if (hits.length > 400) break;
+  }
+  return hits.sort((a, b) => a.score - b.score || b.id - a.id).slice(0, 12).map(({ score, id, ...p }) => p);
+}
 function exSlackBlocks(x, title) {
-  const it = l => `${l.qty} × ${l.desc || l.style} ${l.color} ${l.size}`.replace(/\s+/g, " ");
+  const val = list => list.reduce((n, l) => n + l.qty * (l.price || 0), 0), units = list => list.reduce((n, l) => n + l.qty, 0);
+  const diffTxt = d => d > 0.005 ? `$${d.toFixed(2)} more taken` : d < -0.005 ? `$${(-d).toFixed(2)} less taken` : "Even";
+  const it = l => `${l.qty} × ${l.desc || l.style} ${l.color} ${l.size} ($${(l.qty * (l.price || 0)).toFixed(2)})`.replace(/\s+/g, " ");
   return [{ type: "header", text: { type: "plain_text", text: title } },
-    fieldsBlock([["Ambassador", x.amb.n], ["Invoice", x.invoiceId], ["Returned to", x.returnedToName], ["Taken from", x.takenFromName], ["Submitted by", x.by], ["Exchange", x.id]]),
-    { type: "section", text: { type: "mrkdwn", text: `*Returned*\n${slackEsc(x.returned.map(it).join("\n") || "none")}\n*Taken*\n${slackEsc(x.taken.map(it).join("\n") || "none")}${x.notes ? `\n*Notes*\n${slackEsc(x.notes)}` : ""}` } },
+    fieldsBlock([["Ambassador", x.amb.n], ["Invoice", x.invoiceId], ["Total returned", `$${val(x.returned).toFixed(2)} (${units(x.returned)} item${units(x.returned) === 1 ? "" : "s"})`],
+      ["Total taken", `$${val(x.taken).toFixed(2)} (${units(x.taken)} item${units(x.taken) === 1 ? "" : "s"})`], ["Difference", diffTxt(val(x.taken) - val(x.returned))],
+      ["Returned to", x.returnedToName], ["Taken from", x.takenFromName], ["Submitted by", x.by], ["Exchange", x.id]]),
+    { type: "section", text: { type: "mrkdwn", text: `*Returned: $${val(x.returned).toFixed(2)}*\n${slackEsc(x.returned.map(it).join("\n") || "none")}\n*Taken: $${val(x.taken).toFixed(2)}*\n${slackEsc(x.taken.map(it).join("\n") || "none")}${x.notes ? `\n*Notes*\n${slackEsc(x.notes)}` : ""}` } },
     { type: "actions", elements: [{ type: "button", text: { type: "plain_text", text: "Review in Jetty Ambassador" }, url: `${SITE()}/#${x.id}` }] }];
 }
 async function getInvoice(id) { const r = await amGet("invoices/", [{ field: "invoice_id", operator: "=", value: String(id) }]); const inv = r.find(x => String(x.invoice_id) === String(id)); if (!inv) throw new Error("Invoice not found in AM"); return inv; }
@@ -1362,6 +1408,7 @@ http.createServer(async (req, res) => {
           return send(res, 200, { ok: true, invoices: await ambInvoices(amb) });
         }
         if (action === "lookup") return send(res, 200, { ok: true, items: await skuLookup(body.q) });
+        if (action === "suggest") return send(res, 200, { ok: true, items: await productSuggest(body.q) });
         if (action === "submit") {
           const amb = liveRoster().find(r => r.id === String(body.as)); if (!amb) return send(res, 404, { ok: false, error: "Ambassador not found." });
           const whs = await warehouseList(), wn = id => (whs.find(w => w.id === String(id)) || {}).name;
@@ -1379,7 +1426,7 @@ http.createServer(async (req, res) => {
             takenFrom: String(body.takenFrom), takenFromName: wn(body.takenFrom), returnedTo: String(body.returnedTo), returnedToName: wn(body.returnedTo),
             returned, taken, status: "Pending", am: {} };
           const list = readEx(); list.unshift(x); writeEx(list.slice(0, 500));
-          notify("exchanges", `Flagship exchange for ${amb.n} needs your approval`, exSlackBlocks(x, "Ambassador exchange: needs approval"));
+          notify("exchanges", `Flagship exchange for ${amb.n} needs your approval: $${returned.reduce((n, l) => n + l.qty * l.price, 0).toFixed(2)} returned, $${taken.reduce((n, l) => n + l.qty * l.price, 0).toFixed(2)} taken`, exSlackBlocks(x, "Ambassador exchange: needs approval"));
           return send(res, 200, { ok: true, exchange: x });
         }
         if (action === "list") return send(res, 200, { ok: true, exchanges: store ? readEx().slice(0, 30).map(({ am, ...x }) => x) : readEx() });

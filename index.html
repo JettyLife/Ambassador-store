@@ -742,6 +742,9 @@ body.storemode>header.top,body.storemode>main,body.storemode>#soon{display:none!
 .exsugb{all:unset;box-sizing:border-box;cursor:pointer;display:flex;gap:10px;align-items:center;padding:6px 8px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface)}
 .exsugb:hover{border-color:var(--slate)}.exsugb b{display:block;font-size:13.5px}.exsugb small{font-size:12px;color:var(--muted)}
 .gatepaste{display:flex;gap:8px;margin:10px 0 4px}.gatepaste input{flex:1;border:1px solid var(--line);border-radius:var(--r);padding:9px 10px;font-size:15px;background:var(--bg)}
+.extot{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.extot div{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:10px 12px;display:flex;flex-direction:column}
+.extot small{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}.extot b{font-size:20px}.extot span{font-size:12px;color:var(--muted)}.extot .up b{color:var(--warn)}
+.exn .exp{display:block;margin-left:0;color:var(--ink)}
 </style></head><body>
 <header class="top">
   <div class="band">
@@ -2279,20 +2282,24 @@ function renderEx(){
   else {
     const inv = EXS.inv, whSel = (id, v) => `<select id="${id}">${EXS.wh.map(w => `<option value="${esc(w.id)}"${w.id === v ? " selected" : ""}>${esc(w.name)}</option>`).join("")}</select>`;
     const retN = Object.values(EXS.ret).reduce((n, q) => n + q, 0), takeN = EXS.taken.reduce((n, t) => n + t.qty, 0);
+    const retV = inv.lines.reduce((n, l) => n + (EXS.ret[l.itemId] || 0) * l.price, 0), takeV = EXS.taken.reduce((n, t) => n + t.qty * t.price, 0), diff = takeV - retV;
     const twh = (EXS.wh.find(w => w.id === EXS.takenFrom) || {}).name || "";
     body = `<button type="button" class="link" id="exBackInv">‹ Back to ${esc(EXS.amb.n)}'s orders</button>
       <h2 class="exh">${esc(EXS.amb.n)} · ${esc(inv.season)} <small>Invoice ${esc(inv.invoiceId)}</small></h2>
       <div class="exwh"><label class="f"><span>Returned items go back to</span>${whSel("exRet", EXS.returnedTo)}</label><label class="f"><span>New items are taken from</span>${whSel("exTake", EXS.takenFrom)}</label></div>
-      <h3 class="psec">Items being returned <small>${retN}</small></h3>
+      <h3 class="psec">Items being returned <small>${retN} · ${money(retV)}</small></h3>
       <p class="hint">Scan tags with the barcode scanner, or tap an item to add one. Scanned items that are on this order count as returned; anything else counts as taken. Use − to take one off.</p>
-      <div class="exlines">${inv.lines.map(l => { const q = EXS.ret[l.itemId] || 0; return `<div class="exl${q ? " on" : ""}${l.left ? " tap" : " off"}"${l.left ? ` data-exretcard="${esc(l.itemId)}"` : ""}>${exThumb(l)}<span class="exn">${exLine(l)}</span>
+      <div class="exlines">${inv.lines.map(l => { const q = EXS.ret[l.itemId] || 0; return `<div class="exl${q ? " on" : ""}${l.left ? " tap" : " off"}"${l.left ? ` data-exretcard="${esc(l.itemId)}"` : ""}>${exThumb(l)}<span class="exn">${exLine(l)}<small class="exp">${money(l.price)}</small></span>
         ${l.left ? `<div class="step"><button type="button" data-exret="${esc(l.itemId)}" data-d="-1" aria-label="One fewer">−</button><span>${q}</span><button type="button" data-exret="${esc(l.itemId)}" data-d="1" aria-label="One more"${q >= l.left ? " disabled" : ""}>+</button></div>` : `<small class="hint">Already returned</small>`}</div>`; }).join("")}</div>
-      <h3 class="psec">Items being taken <small>${takeN}</small></h3>
+      <h3 class="psec">Items being taken <small>${takeN} · ${money(takeV)}</small></h3>
       <div class="exlook"><input id="exLook" placeholder="Scan the tag, or type a UPC, style number or product name" value="${esc(EXS.look)}" autocomplete="off"><button type="button" class="alink" id="exFind">${EXS.busy === "look" ? "Finding…" : "Find"}</button></div>
       ${exSuggest()}
       ${EXS.hits ? (EXS.hits.length ? `<div class="exhits">${exHitsHTML()}</div>` : `<p class="hint">Nothing in AM matches “${esc(EXS.look)}”. Try the UPC from the tag.</p>`) : ""}
-      <div class="exlines">${EXS.taken.map((t, i) => `<div class="exl on tap" data-extakecard="${i}">${exThumb(t)}<span class="exn">${exLine(t)}</span><div class="step"><button type="button" data-extake="${i}" data-d="-1" aria-label="One fewer">−</button><span>${t.qty}</span><button type="button" data-extake="${i}" data-d="1" aria-label="One more">+</button></div></div>`).join("") || `<p class="hint">Nothing added yet.</p>`}</div>
+      <div class="exlines">${EXS.taken.map((t, i) => `<div class="exl on tap" data-extakecard="${i}">${exThumb(t)}<span class="exn">${exLine(t)}<small class="exp">${money(t.price)}</small></span><div class="step"><button type="button" data-extake="${i}" data-d="-1" aria-label="One fewer">−</button><span>${t.qty}</span><button type="button" data-extake="${i}" data-d="1" aria-label="One more">+</button></div></div>`).join("") || `<p class="hint">Nothing added yet.</p>`}</div>
       <label class="f"><span>Notes (optional)</span><textarea id="exNotes" rows="2">${esc(EXS.notes)}</textarea></label>
+      <div class="extot"><div><small>Returned</small><b>${money(retV)}</b><span>${retN} item${retN === 1 ? "" : "s"}</span></div>
+        <div><small>Taken</small><b>${money(takeV)}</b><span>${takeN} item${takeN === 1 ? "" : "s"}</span></div>
+        <div class="${diff > 0.005 ? "up" : ""}"><small>Difference</small><b>${diff > 0.005 ? "+" + money(diff) : diff < -0.005 ? "−" + money(-diff) : "Even"}</b><span>${diff > 0.005 ? "more taken than returned" : diff < -0.005 ? "less taken than returned" : "same retail value"}</span></div></div>
       ${EXS.err ? `<div class="note">${esc(EXS.err)}</div>` : ""}
       <button type="button" class="primary" id="exSubmit"${EXS.busy === "submit" || !(retN || takeN) ? " disabled" : ""}>${EXS.busy === "submit" ? "Sending…" : `Submit exchange (${retN} returned, ${takeN} taken)`}</button>
       <p class="hint">Taken items come out of ${esc(twh)}. Tyler approves it before anything changes in AM.</p>`;
@@ -2302,9 +2309,24 @@ function renderEx(){
     <div class="wrap exbody">${body}</div>`;
 }
 function exSuggest(){
-  const q = EXS.look.trim().toLowerCase(); if (q.length < 3 || /^\d+$/.test(q) || EXS.hits) return "";
-  const m = PRODUCTS.filter(p => (p.d + " " + p.c + " " + p.s).toLowerCase().includes(q)).slice(0, 8);
-  return m.length ? `<div class="exsug">${m.map(p => `<button type="button" class="exsugb" data-exstyle="${esc(p.s)}">${exThumb({ style: p.s })}<span><b>${esc(p.d)}</b><small>${esc(p.c)} · <span class="code">${esc(p.s)}</span></small></span></button>`).join("")}</div>` : "";
+  const q = EXS.look.trim(); if (q.length < 2 || /^\d+$/.test(q) || EXS.hits) return "";
+  const words = q.toLowerCase().split(/\s+/);
+  const local = PRODUCTS.filter(p => words.every(w => (p.d + " " + p.c + " " + p.s).toLowerCase().includes(w))).slice(0, 12).map(p => ({ s: p.s, d: p.d, c: p.c, season: p.season }));
+  const srv = EXS.sugQ === q && EXS.sug ? EXS.sug : [];
+  const list = srv.concat(local.filter(p => !srv.some(x => x.s === p.s))).slice(0, 12);   // AM's full list first, this season's store items fill in
+  if (!list.length) return EXS.sugQ === q ? `<p class="hint">No products match “${esc(q)}”. Try the style number or scan the tag.</p>` : `<p class="hint">Searching…</p>`;
+  return `<div class="exsug">${list.map(p => `<button type="button" class="exsugb" data-exstyle="${esc(p.s)}">${exThumb({ style: p.s, img: p.img })}<span><b>${esc(p.d || p.s)}</b><small>${p.c ? esc(p.c) + " · " : ""}<span class="code">${esc(p.s)}</span>${p.season ? " · " + esc(p.season) : ""}</small></span></button>`).join("")}</div>`;
+}
+let sugTimer = null;
+function exQueueSuggest(){
+  clearTimeout(sugTimer);
+  const q = EXS.look.trim(); if (q.length < 2 || /^\d+$/.test(q)) return;
+  sugTimer = setTimeout(async () => {
+    try { const j = await exApi("suggest", { q }); if (EXS.look.trim() !== q) return; EXS.sug = j.items; EXS.sugQ = q; }
+    catch (e) { return; }
+    const el = $("exLook"), pos = el && el.selectionStart, had = document.activeElement === el;
+    renderEx(); const n = $("exLook"); if (n && had) { n.focus(); n.setSelectionRange(pos, pos); }
+  }, 220);
 }
 function exHitsHTML(){
   const twh = (EXS.wh.find(w => w.id === EXS.takenFrom) || {}).name || "";
@@ -2353,7 +2375,7 @@ document.addEventListener("input", e => {
   if (id === "exQ") { EXS.q = e.target.value; const pos = e.target.selectionStart; renderEx(); const q = $("exQ"); q.focus(); q.setSelectionRange(pos, pos); }
   else if (id === "exBy") { EXS.by = e.target.value; store.set("jas:exby", EXS.by); }
   else if (id === "exNotes") EXS.notes = e.target.value;
-  else if (id === "exLook") { EXS.look = e.target.value; EXS.hits = null; const pos = e.target.selectionStart; renderEx(); const q = $("exLook"); q.focus(); q.setSelectionRange(pos, pos); }
+  else if (id === "exLook") { EXS.look = e.target.value; EXS.hits = null; const pos = e.target.selectionStart; renderEx(); const q = $("exLook"); q.focus(); q.setSelectionRange(pos, pos); exQueueSuggest(); }
 });
 document.addEventListener("change", e => {
   if (!S.me || !S.me.store) return;
@@ -2361,7 +2383,7 @@ document.addEventListener("change", e => {
   if (e.target.id === "exTake") { EXS.takenFrom = e.target.value; renderEx(); }
 });
 document.addEventListener("keydown", e => {   // barcode scanners type the UPC and press Enter
-  if (S.me && S.me.store && e.key === "Enter" && e.target.id === "exLook") { e.preventDefault(); const q = e.target.value.trim(); if (/^\d{11,14}$/.test(q)) exScan(q); else if (q) exLookup(q); }
+  if (S.me && S.me.store && e.key === "Enter" && e.target.id === "exLook") { e.preventDefault(); const q = e.target.value.trim(); if (/^\d{11,14}$/.test(q)) exScan(q); else if (q && !/^[A-Z0-9]+-[A-Z0-9]+$/i.test(q) && EXS.sugQ === q && EXS.sug && EXS.sug.length) exLookup(EXS.sug[0].s); else if (q) exLookup(q); }
 });
 
 
@@ -2414,13 +2436,14 @@ function exAdminPanel(){
   return head + EXA.list.map(x => `<article class="rcard excard st-${esc(x.status.toLowerCase().replace(/\s+/g,"-"))}" data-item="${esc(x.id)}">
       <div class="rtop"><div><b>${esc(x.amb.n)}</b> <small>${esc(x.season)} · Invoice ${esc(x.invoiceId)}</small></div><span class="exst">${esc(x.status)}</span></div>
       <p class="hint">${new Date(x.at).toLocaleString("en-US",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"})} · by ${esc(x.by)} · Returned to <b>${esc(x.returnedToName)}</b> · Taken from <b>${esc(x.takenFromName)}</b></p>
-      <div class="excols"><div><h4>Returned</h4><ul>${x.returned.map(ln).join("") || "<li>None</li>"}</ul></div><div><h4>Taken</h4><ul>${x.taken.map(ln).join("") || "<li>None</li>"}</ul></div></div>
+      <div class="excols"><div><h4>Returned · ${money(exVal(x.returned))}</h4><ul>${x.returned.map(ln).join("") || "<li>None</li>"}</ul></div><div><h4>Taken · ${money(exVal(x.taken))}</h4><ul>${x.taken.map(ln).join("") || "<li>None</li>"}</ul></div></div>
       ${x.notes ? `<p><b>Notes:</b> ${esc(x.notes)}</p>` : ""}
       ${x.am && (x.am.log || []).length ? `<p class="hint">${x.am.log.map(esc).join("<br>")}</p>` : ""}
       ${x.am && x.am.error ? `<div class="note">${esc(x.am.error)}</div>` : ""}${x.am && (x.am.warn || []).length ? `<div class="note">${x.am.warn.map(esc).join("<br>")}</div>` : ""}
       ${["Pending", "Needs attention"].includes(x.status) ? `<div class="rbtns"><button type="button" class="primary small" data-exapprove="${esc(x.id)}"${EXA.busy ? " disabled" : ""}>${EXA.busy === x.id ? "Updating AM…" : x.status === "Pending" ? "Approve and update AM" : "Try AM again"}</button>${x.status === "Pending" ? `<button type="button" class="link" data-exreject="${esc(x.id)}">Reject</button>` : ""}</div>` : ""}
     </article>`).join("");
 }
+const exVal = list => (list || []).reduce((n, l) => n + l.qty * (l.price || 0), 0);
 async function exAdminClick(e){
   const t = e.target;
   if (t.id === "exaLink") { if (!EXA.link) { try { EXA.link = (await exApi("store-link")).link; } catch (x) { toast(x.message); } renderProfile(); }
