@@ -491,31 +491,34 @@ const SLACK_ON = new Set((process.env.SLACK_NOTIFY || "requests,uploads,pending"
 if (!/(^|,)\s*-exchanges/.test(process.env.SLACK_NOTIFY || "")) SLACK_ON.add("exchanges");   // Flagship exchanges always ping (add "-exchanges" to SLACK_NOTIFY to stop)
 const SITE = () => process.env.PUBLIC_URL || "https://jettyambassador.up.railway.app";
 const slackEsc = v => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-async function postSlack(text, blocks) {
+async function postSlack(text, blocks, attachments) {
   if (!SLACK_URL) return false;
-  const r = await fetch(SLACK_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, blocks }) });
+  const r = await fetch(SLACK_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, ...(blocks ? { blocks } : {}), ...(attachments ? { attachments } : {}) }) });
   if (!r.ok) throw new Error(`Slack ${r.status}: ${(await r.text()).slice(0, 200)}`);
   return true;
 }
 // Who gets @-mentioned per alert. Railway variable SLACK_MENTIONS overrides, e.g.
 // "requests:U0C9M2Q15GC;uploads:U0C9M2Q15GC;pending:U0C9M2Q15GC,UM3REF944;orders:" (Slack member IDs; Jon = U0C9M2Q15GC, Arlynn = U0BPU0W4BCK, Jerm = U4UAC501F, Tyler = UM3REF944)
 const SLACK_MENTIONS = (() => {
-  const m = { requests: ["U0C9M2Q15GC", "U0BPU0W4BCK"], uploads: ["U0C9M2Q15GC", "U0BPU0W4BCK"], pending: ["U0C9M2Q15GC", "U0BPU0W4BCK", "U4UAC501F"], orders: [], exchanges: ["UM3REF944", "U0BPU0W4BCK"] };
+  const m = { requests: ["U0C9M2Q15GC", "U0BPU0W4BCK"], uploads: ["U0C9M2Q15GC", "U0BPU0W4BCK"], pending: ["U0C9M2Q15GC", "U0BPU0W4BCK", "U4UAC501F"], orders: ["U0C9M2Q15GC", "U0BPU0W4BCK", "U4UAC501F"], exchanges: ["UM3REF944", "U0BPU0W4BCK"] };
   for (const part of String(process.env.SLACK_MENTIONS || "").split(";")) {
     const [k, v] = part.split(":"); if (!k || !(k.trim().toLowerCase() in m) || v === undefined) continue;
     m[k.trim().toLowerCase()] = v.split(",").map(x => x.trim()).filter(x => /^[UW][A-Z0-9]{6,}$/.test(x));
   }
   return m;
 })();
-function notify(kind, text, blocks, test) {
-  if (!SLACK_URL || !SLACK_ON.has(kind)) return;
+function notify(kind, text, blocks, test, color) {
+  if (!SLACK_URL || (!SLACK_ON.has(kind) && !(color && (kind === "orders" || kind === "pending")))) return;
   // Test activity (Sandbox, Jetty Admin) doesn't ping anyone, unless Railway variable SLACK_TAG_TESTS = 1 (for checking the tags).
   const who = test && process.env.SLACK_TAG_TESTS !== "1" ? [] : (SLACK_MENTIONS[kind] || []);
-  if (who.length) {
-    const tag = who.map(id => `<@${id}>`).join(" ");
-    text = `${tag} ${text}`;
-    blocks = [{ type: "section", text: { type: "mrkdwn", text: tag } }, ...blocks];
+  const tag = who.map(id => `<@${id}>`).join(" ");
+  if (tag) text = `${tag} ${text}`;
+  if (color) {   // colored bar down the side of the message (red = over allowance)
+    postSlack(text, tag ? [{ type: "section", text: { type: "mrkdwn", text: tag } }] : undefined, [{ color, blocks }])
+      .catch(e => console.error(JSON.stringify({ event: "slack_failed", kind, error: e.message })));
+    return;
   }
+  if (tag) blocks = [{ type: "section", text: { type: "mrkdwn", text: tag } }, ...blocks];
   postSlack(text, blocks).catch(e => console.error(JSON.stringify({ event: "slack_failed", kind, error: e.message })));
 }
 const sDate = d => d ? new Date(String(d).slice(0, 10) + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" }) : "";
@@ -1009,7 +1012,7 @@ function amOwner(r) { return String(r.last_name || "").trim() || titleIf(cleanNa
 async function refreshRoster() {
   if (!AM_TOKEN) return;
   try {
-    const rows = await amGet("customers/", [{ field: "ambassador", operator: "=", value: "1" }], { pagination: { page_size: 1000 } });
+    const rows = await amGetAll("customers/", [{ field: "ambassador", operator: "=", value: "1" }]);   // all pages, in case AM returns more than one
     const next = new Map();
     for (const r of rows) {
       if (String(r.ambassador) !== "1" || String(r.is_active ?? "1") !== "1") continue;
@@ -1070,7 +1073,7 @@ function unlock(code) {
   return ambRecord(got);
 }
 setTimeout(() => productIndex().catch(() => {}), 5000);
-const rosterReady = refreshRoster(); setInterval(refreshRoster, 5 * 60 * 1000);
+const rosterReady = refreshRoster(); setInterval(refreshRoster, 2 * 60 * 1000);
 
 /* ---------- contact info + shipping instructions (read from / written to the AM customer; nothing stored here) ---------- */
 const CONTACT_FIELDS = { address_1: 100, address_2: 100, city: 60, state: 30, postal_code: 12, country: 40, phone: 30, email: 120, shipping_info: 1000 };
@@ -1326,14 +1329,16 @@ async function handleOrder(input) {
   const out = { ok: true, orderId, amOrderId, spent: Math.round(total * 100) / 100, pending: overAllowance };
   if (orderId) seen.set(orderId, out);
   console.log(JSON.stringify({ event: "order_created", orderId, amOrderId, creditStatus: header.credit_status }));
-  const kind = overAllowance ? "pending" : "orders";
-  if (SLACK_ON.has(kind) || (overAllowance && SLACK_ON.has("orders"))) notify(SLACK_ON.has(kind) ? kind : "orders",
-    `${me.t ? "[TEST] " : ""}${overAllowance ? "Order over allowance (Pending)" : "New order"}: ${me.n}`, [
-    { type: "header", text: { type: "plain_text", text: `${me.t ? "[TEST] " : ""}${overAllowance ? "Order over allowance: Pending review" : "New ambassador order"}` } },
+  // Every order posts to Slack. Over-allowance orders get a red bar, a red "OVER" line and the usual tags; others a green bar.
+  const kind = overAllowance ? "pending" : "orders", overBy = total - Number(me.a);
+  if (!/(^|,)\s*-orders/.test(process.env.SLACK_NOTIFY || "")) notify(kind,
+    `${me.t ? "[TEST] " : ""}${overAllowance ? `Order OVER allowance by $${overBy.toFixed(2)} (Pending)` : "New order"}: ${me.n}`, [
+    { type: "header", text: { type: "plain_text", text: `${me.t ? "[TEST] " : ""}${overAllowance ? "🔴 Order over allowance: Pending review" : "🟢 New ambassador order"}` } },
+    ...(overAllowance ? [{ type: "section", text: { type: "mrkdwn", text: `:red_circle: *OVER BY $${overBy.toFixed(2)}*  ·  season total $${total.toFixed(2)} of $${Number(me.a).toFixed(2)}` } }] : []),
     fieldsBlock([["Ambassador", me.n], ["AM order", String(amOrderId || "")], ["PO", me.po], ["This order", `$${retail.toFixed(2)} retail, ${units} units`],
-      ["Season total", `$${total.toFixed(2)} of $${Number(me.a).toFixed(2)}${overAllowance ? ` (over by $${(total - me.a).toFixed(2)})` : ""}`], ["Fulfillment", fulfil]]),
+      ["Season total", `$${total.toFixed(2)} of $${Number(me.a).toFixed(2)}${overAllowance ? ` (over by $${overBy.toFixed(2)})` : ` ($${(-overBy).toFixed(2)} left)`}`], ["Fulfillment", fulfil]]),
     ...(overAllowance ? [ctx("Approve or adjust it in ApparelMagic (credit status is Pending).")] : []),
-  ], me.t);
+  ], me.t, overAllowance ? "#D93025" : "#2D7A4B");
   return out;
 }
 

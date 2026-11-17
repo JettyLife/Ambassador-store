@@ -1332,6 +1332,7 @@ function openProfile(){
   $("profName").textContent = S.me.n; $("profAv").textContent = initials(S.me.n);
   $("profile").hidden = false; document.body.classList.add("noscroll");
   profOpen = null; renderProfile(); loadProfile();
+  if (isStaff() && Date.now() - ROSTER_AT > 60000) refreshRosterNow(true);   // pick up name/email/allowance edits made in AM
   requestAnimationFrame(() => { const h = document.querySelector(".pband")?.offsetHeight || 150; $("profile").style.setProperty("--pband-h", h + "px"); });
 }
 function closeProfile(){ $("profile").hidden = true; document.body.classList.remove("noscroll"); }
@@ -1485,16 +1486,16 @@ async function pickedUp(btn){
     if (btn.dataset.as) { delete ADM.data[btn.dataset.as]; loadAmb(btn.dataset.as); } else { PROF = null; loadProfile(); }
   } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = "Mark as picked up"; }
 }
-let ROSTER_BUSY = false;
-async function refreshRosterNow(){
-  ROSTER_BUSY = true; renderProfile();
+let ROSTER_BUSY = false, ROSTER_AT = Date.now();
+async function refreshRosterNow(quiet){
+  ROSTER_BUSY = true; ROSTER_AT = Date.now(); renderProfile();
   try {
     const r = await fetch("/api/admin/roster", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: S.code, refresh: true }) });
     const j = await r.json();
     if (!r.ok || !j.ok) throw new Error();
     const before = S.me.roster.length; S.me.roster = j.roster;
-    toast(j.error ? "Couldn't reach AM. Showing the last list." : j.roster.length > before ? `${j.roster.length - before} new ambassador${j.roster.length - before === 1 ? "" : "s"} added` : "Ambassador list is up to date");
-  } catch (e) { toast("Couldn't refresh. Try again."); }
+    if (!quiet || j.roster.length !== before) toast(j.error ? "Couldn't reach AM. Showing the last list." : j.roster.length > before ? `${j.roster.length - before} new ambassador${j.roster.length - before === 1 ? "" : "s"} added` : "Ambassador list is up to date");
+  } catch (e) { if (!quiet) toast("Couldn't refresh. Try again."); }
   ROSTER_BUSY = false; renderProfile();
 }
 function profileSidebar(){
