@@ -1338,6 +1338,13 @@ async function handleOrder(input) {
     fieldsBlock([["Ambassador", me.n], ["AM order", String(amOrderId || "")], ["PO", me.po], ["This order", `$${retail.toFixed(2)} retail, ${units} units`],
       ["Season total", `$${total.toFixed(2)} of $${Number(me.a).toFixed(2)}${overAllowance ? ` (over by $${overBy.toFixed(2)})` : ` ($${(-overBy).toFixed(2)} left)`}`], ["Fulfillment", fulfil]]),
     ...(overAllowance ? [ctx("Approve or adjust it in ApparelMagic (credit status is Pending).")] : []),
+    // Approve button: the click goes to Jetty Distro Bot's own server (the warehouse app), which approves the order in AM.
+    // Hidden until that side is ready: Railway variable SLACK_APPROVE_BUTTON=1.
+    ...(overAllowance && amOrderId && process.env.SLACK_APPROVE_BUTTON === "1" ? [{ type: "actions", block_id: "amb_approve_" + amOrderId, elements: [{
+      type: "button", action_id: "amb_approve", style: "primary", text: { type: "plain_text", text: "Approve in AM" },
+      value: JSON.stringify({ v: 1, order_id: String(amOrderId), customer_po: me.po, ambassador: me.n, test: !!me.t, season_total: +total.toFixed(2), allowance: +Number(me.a).toFixed(2), over_by: +overBy.toFixed(2) }),
+      confirm: { title: { type: "plain_text", text: "Approve this order?" }, text: { type: "mrkdwn", text: `Set AM order ${amOrderId} for ${me.n} to *Approved*. It's $${overBy.toFixed(2)} over their allowance.` },
+        confirm: { type: "plain_text", text: "Approve" }, deny: { type: "plain_text", text: "Cancel" } } }] }] : []),
   ], me.t, overAllowance ? "#D93025" : "#2D7A4B");
   return out;
 }
