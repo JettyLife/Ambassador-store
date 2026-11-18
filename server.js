@@ -183,7 +183,11 @@ async function seasonSpend(me, fresh = false) {
   const orders = rows.filter(o => String(o.customer_id) === cid && String(o.customer_po || "").trim() === me.po)
     .map(o => ({ amOrderId: String(o.order_id), date: o.date || "", ...orderRetail(o) }))
     .filter(o => o.units > 0);
-  for (const r of recent.get(ambKey(me)) || []) if (!orders.some(o => o.amOrderId === String(r.amOrderId))) orders.push(r);
+  // Just-placed orders count until AM lists them (AM can lag a minute). Once AM has it, or after 10 minutes, AM alone decides,
+  // so an order deleted or cancelled in AM drops off the allowance bar.
+  const keep = (recent.get(ambKey(me)) || []).filter(r => !orders.some(o => o.amOrderId === String(r.amOrderId)) && Date.now() - (r.at || 0) < 10 * 60000);
+  recent.set(ambKey(me), keep);
+  for (const r of keep) orders.push(r);
   const data = { spent: Math.round(orders.reduce((t, o) => t + o.retail, 0) * 100) / 100, orders };
   spentCache.set(ambKey(me), { at: Date.now(), data });
   return data;
@@ -1324,7 +1328,7 @@ async function handleOrder(input) {
   }
   const units = lines.reduce((t, l) => t + l.qty, 0);
   if (!recent.has(ambKey(me))) recent.set(ambKey(me), []);
-  recent.get(ambKey(me)).push({ amOrderId: String(amOrderId || orderId), date: new Date().toLocaleDateString("en-US"), retail, units });
+  recent.get(ambKey(me)).push({ amOrderId: String(amOrderId || orderId), date: new Date().toLocaleDateString("en-US"), retail, units, at: Date.now() });
   spentCache.delete(ambKey(me)); histCache.delete(ambKey(me)); seasonsCache = null;
   const out = { ok: true, orderId, amOrderId, spent: Math.round(total * 100) / 100, pending: overAllowance };
   if (orderId) seen.set(orderId, out);
