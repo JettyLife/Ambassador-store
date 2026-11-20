@@ -1252,6 +1252,16 @@ async function applyExchange(x) {
   return log;
 }
 
+/* ---------- Extra gear (samples, gifts): recorded here only, never sent to AM, never counted against allowances ---------- */
+const GEAR_FILE = () => path.join(DATA_DIR, "extra-gear.json");
+const readGear = () => readJson(GEAR_FILE(), []);
+const GEAR_TYPES = ["Sample", "Gift", "Event", "Other"];
+function cleanGearItem(it) {
+  const qty = parseInt(it.qty, 10);
+  const out = { style: clip(it.style, 40), desc: clip(it.desc, 120), color: clip(it.color, 40), size: clip(it.size, 20), qty: qty > 0 && qty < 100 ? qty : 1, img: /^https?:\/\/\S+$|^img\/[\w.-]+$/.test(String(it.img || "")) ? String(it.img).slice(0, 400) : "" };
+  return out.style || out.desc ? out : null;
+}
+
 /* ---------- order ---------- */
 const seen = new Map(); // orderId -> result (stops double submits)
 async function handleOrder(input) {
@@ -1467,6 +1477,38 @@ http.createServer(async (req, res) => {
       } catch (e) {
         console.error(JSON.stringify({ event: "exchange_error", action, error: e.message }));
         return send(res, e.message === "bad_code" || e.code === "ENOENT" ? 403 : 502, { ok: false, error: e.message === "bad_code" ? "Link not recognized." : "Couldn't reach our system. Try again." });
+      }
+    }
+    if (req.method === "POST" && url.pathname.startsWith("/api/gear/")) {   // extra gear: ambassadors see their own; Jetty Admin logs and edits
+      let raw = ""; for await (const c of req) { raw += c; if (raw.length > 60000) return send(res, 413, { ok: false }); }
+      const action = url.pathname.slice("/api/gear/".length);
+      try {
+        const body = JSON.parse(raw), me = unlock(body.code), list = readGear();
+        if (action === "list") {
+          if (me.admin) return send(res, 200, { ok: true, gear: body.as ? list.filter(g => g.ambId === String(body.as)) : list });
+          if (!me.id || me.store) return send(res, 200, { ok: true, gear: [] });
+          return send(res, 200, { ok: true, gear: list.filter(g => g.ambId === me.id).map(({ createdBy, ...g }) => g) });
+        }
+        if (!me.admin) return send(res, 403, { ok: false });
+        if (action === "save") {
+          const e = body.entry || {}, amb = liveRoster().find(r => r.id === String(e.ambId));
+          if (!amb) return send(res, 404, { ok: false, error: "Ambassador not found." });
+          const items = (Array.isArray(e.items) ? e.items : []).map(cleanGearItem).filter(Boolean).slice(0, 60);
+          if (!items.length) return send(res, 400, { ok: false, error: "Add at least one item." });
+          const date = /^\d{4}-\d{2}-\d{2}$/.test(String(e.date || "")) ? e.date : new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+          const rec = { ambId: amb.id, ambName: amb.n, date, type: GEAR_TYPES.includes(e.type) ? e.type : "Sample", by: clip(e.by, 60), note: clip(e.note, 1000), items };
+          let cur = e.id && list.find(g => g.id === String(e.id));
+          if (cur) Object.assign(cur, rec, { updated: new Date().toISOString() });
+          else { cur = { id: "XG-" + Date.now().toString(36).toUpperCase(), ...rec, created: new Date().toISOString(), createdBy: me.n }; list.unshift(cur); }
+          writeJson(GEAR_FILE(), list);
+          console.log(JSON.stringify({ event: "extra_gear_saved", id: cur.id, amb: amb.n, units: items.reduce((n, i) => n + i.qty, 0) }));
+          return send(res, 200, { ok: true, entry: cur });
+        }
+        if (action === "delete") { writeJson(GEAR_FILE(), list.filter(g => g.id !== String(body.id))); return send(res, 200, { ok: true }); }
+        return send(res, 404, { ok: false });
+      } catch (e) {
+        console.error(JSON.stringify({ event: "gear_error", action, error: e.message }));
+        return send(res, e.message === "bad_code" || e.code === "ENOENT" ? 403 : 500, { ok: false, error: "Couldn't save that. Try again." });
       }
     }
     if (req.method === "POST" && url.pathname === "/api/admin/roster") {   // {code, refresh?} staff: re-read AM now

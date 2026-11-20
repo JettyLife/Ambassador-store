@@ -745,6 +745,10 @@ body.storemode>header.top,body.storemode>main,body.storemode>#soon{display:none!
 .extot{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.extot div{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:10px 12px;display:flex;flex-direction:column}
 .extot small{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}.extot b{font-size:20px}.extot span{font-size:12px;color:var(--muted)}.extot .up b{color:var(--warn)}
 .exn .exp{display:block;margin-left:0;color:var(--ink)}
+.xgform{display:flex;flex-direction:column;gap:10px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;margin-bottom:14px}
+.xgform textarea,.xgform select{width:100%;border:1px solid var(--line);border-radius:var(--r);background:var(--bg);padding:9px 10px;font:inherit;font-size:15px}
+.xgrow{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}.xgcustom summary{cursor:pointer;margin-bottom:8px}
+.xgact{margin-left:auto;display:flex;gap:10px}.pord.xg .pordh{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 </style></head><body>
 <header class="top">
   <div class="band">
@@ -1418,7 +1422,7 @@ let SEAS = { data: null, pick: null, sort: "n", prod: "" };
 const prodName = st => { const p = PRODUCTS.find(x => x.s === st); return p ? `${p.d} – ${p.c}` : ""; };
 function allItemsBySeason(){
   if (!Array.isArray(SEAS.data)) return [];
-  return SEAS.data.flatMap(s => s.people.flatMap(p => (p.items || []).map(it => ({ ...it, id: p.id, season: s.label }))));
+  return SEAS.data.flatMap(s => s.people.flatMap(p => (p.items || []).map(it => ({ ...it, id: p.id, season: s.label })))).concat(gearSearchItems());
 }
 function productHits(q){
   if (!Array.isArray(SEAS.data)) { if (SEAS.data === null) { SEAS.data = "loading"; loadSeasons(); } return new Map(); }
@@ -1537,7 +1541,8 @@ function ambPanel(){
       <div class="linkline"><span class="code" id="lk-${esc(r.id)}">${esc(location.origin + "/#" + r.code)}</span></div></div>
     <h3 class="psec">Contact info</h3>${contactHTML(r.id)}
     <h3 class="psec">Orders</h3>
-    ${!d ? `<p class="hint pload">Loading orders…</p>` : d.error ? `<p class="hint pload">Couldn't load orders. Try again.</p>` : seasonsHTML(d.seasons || [], "a:" + r.id)}`;
+    ${!d ? `<p class="hint pload">Loading orders…</p>` : d.error ? `<p class="hint pload">Couldn't load orders. Try again.</p>` : seasonsHTML(d.seasons || [], "a:" + r.id)}
+    ${gearStaffHTML(r.id)}`;
 }
 async function loadAmb(id, fresh){
   try {
@@ -1550,8 +1555,115 @@ function myPanel(){
   const orders = !PROF ? `<p class="hint pload">Loading your orders…</p>`
     : PROF.error ? `<p class="hint pload">We couldn't load your order history right now. Try again in a minute.</p>`
     : seasonsHTML(PROF.seasons || []);
-  return `<div class="rhead"><h3 class="psec">Past Orders</h3><button type="button" class="alink" id="histRefresh" title="Get the latest status and tracking from our system">Refresh</button></div>` + orders;
+  if (XG.mine === null) { XG.mine = "loading"; gearApi("list").then(j => { XG.mine = j.gear; }).catch(() => { XG.mine = []; }).finally(renderProfile); }
+  const extra = Array.isArray(XG.mine) && XG.mine.length ? `<h3 class="psec">Extra gear</h3><p class="hint">Samples and other gear we've sent you outside your allowance.</p>${gearListHTML(XG.mine, false)}` : "";
+  return `<div class="rhead"><h3 class="psec">Past Orders</h3><button type="button" class="alink" id="histRefresh" title="Get the latest status and tracking from our system">Refresh</button></div>` + orders + extra;
 }
+/* ===== Extra gear: samples and gifts, recorded on the site only (never in AM, never against the allowance) ===== */
+let XG = { mine: null, byAmb: {}, all: null, form: null };
+const GEAR_TYPES = ["Sample", "Gift", "Event", "Other"];
+async function gearApi(action, extra){
+  const r = await fetch("/api/gear/" + action, { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ code: S.code, ...(extra || {}) }) });
+  const j = await r.json().catch(() => ({})); if (!r.ok || !j.ok) throw new Error(j.error || "Something went wrong. Try again."); return j;
+}
+const fmtDay = d => d ? new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "";
+function gearItemHTML(it){
+  const th = thumbFor(it.style) || it.img || "";
+  return `<div class="pit"><div class="pth">${th ? `<img src="${esc(th)}" alt="" loading="lazy" onerror="this.remove()">` : ""}</div>
+    <div class="pinfo"><b>${esc(it.desc || it.style)}</b><small>${[it.color ? esc(it.color) : "", it.size ? "Size " + esc(it.size) : "", it.style ? `<span class="code">${esc(it.style)}</span>` : ""].filter(Boolean).join(" · ")}</small></div>
+    <div class="pq">× ${it.qty}</div></div>`;
+}
+function gearListHTML(list, staff){
+  if (!list.length) return `<p class="hint">Nothing logged yet.</p>`;
+  return `<div class="xglist">${list.map(g => `<div class="pord xg"><div class="pordh"><b>${esc(fmtDay(g.date))}</b><span class="opill op-ship">${esc(g.type)}</span>
+      <span>${g.items.reduce((n, i) => n + i.qty, 0)} item${g.items.reduce((n, i) => n + i.qty, 0) === 1 ? "" : "s"}${g.by ? ` · from ${esc(g.by)}` : ""}</span>
+      ${staff ? `<span class="xgact"><button type="button" class="link" data-xgedit="${esc(g.id)}">Edit</button><button type="button" class="link" data-xgdel="${esc(g.id)}">Delete</button></span>` : ""}</div>
+      ${g.note ? `<p class="hint" style="margin:4px 0 6px">${esc(g.note)}</p>` : ""}${g.items.map(gearItemHTML).join("")}</div>`).join("")}</div>`;
+}
+function gearStaffHTML(ambId){
+  const list = XG.byAmb[ambId];
+  if (list === undefined) { XG.byAmb[ambId] = null; gearApi("list", { as: ambId }).then(j => { XG.byAmb[ambId] = j.gear; }).catch(() => { XG.byAmb[ambId] = []; }).finally(renderProfile); }
+  const f = XG.form && XG.form.ambId === ambId ? XG.form : null;
+  return `<div class="rhead"><h3 class="psec">Extra gear <small>not in AM · not counted against the allowance</small></h3>${f ? "" : `<button type="button" class="alink" data-xgnew="${esc(ambId)}">+ Log extra gear</button>`}</div>
+    ${f ? gearFormHTML(f) : ""}${!Array.isArray(list) ? `<p class="hint">Loading…</p>` : gearListHTML(list, true)}`;
+}
+function gearFormHTML(f){
+  const q = f.q.trim();
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  const local = q.length >= 2 ? PRODUCTS.filter(p => words.every(w => (p.d + " " + p.c + " " + p.s).toLowerCase().includes(w))).slice(0, 12).map(p => ({ s: p.s, d: p.d, c: p.c, season: p.season })) : [];
+  const srv = f.sugQ === q && f.sug ? f.sug : [];
+  const sug = f.hits ? [] : srv.concat(local.filter(p => !srv.some(x => x.s === p.s))).slice(0, 12);
+  return `<form class="xgform" id="xgForm" novalidate>
+    <div class="xgrow"><label class="f"><span>Date given</span><input type="date" id="xg-date" value="${esc(f.date)}"></label>
+      <label class="f"><span>Type</span><select id="xg-type">${GEAR_TYPES.map(t => `<option${t === f.type ? " selected" : ""}>${t}</option>`).join("")}</select></label>
+      <label class="f"><span>Given by</span><input id="xg-by" value="${esc(f.by)}" placeholder="Tyler"></label></div>
+    <label class="f"><span>Items</span><input id="xg-q" value="${esc(f.q)}" placeholder="Search a product name or style number, or scan a tag" autocomplete="off"></label>
+    ${sug.length ? `<div class="exsug">${sug.map(p => `<button type="button" class="exsugb" data-xgstyle="${esc(p.s)}">${exThumb({ style: p.s, img: p.img })}<span><b>${esc(p.d || p.s)}</b><small>${p.c ? esc(p.c) + " · " : ""}<span class="code">${esc(p.s)}</span>${p.season ? " · " + esc(p.season) : ""}</small></span></button>`).join("")}</div>` : ""}
+    ${f.busy ? `<p class="hint">Finding sizes…</p>` : ""}
+    ${f.hits ? (f.hits.length ? `<div class="exhits">${(() => { const h0 = f.hits[0]; return `<div class="exhit">${exThumb(h0)}<div><b>${esc(h0.desc || h0.style)}</b> <small>${esc(h0.colorName || h0.color)} · <span class="code">${esc(h0.style)}</span></small><div class="exsz">${f.hits.map(h => `<button type="button" class="szb" data-xgadd="${esc(h.skuId)}">${esc(h.size)}</button>`).join("")}</div></div></div>`; })()}<button type="button" class="link" id="xg-clearhits">Cancel</button></div>` : `<p class="hint">Nothing in AM matches. Add it as a custom item below.</p>`) : ""}
+    <details class="xgcustom"><summary class="link">Add an item that isn't in AM (like a sample)</summary>
+      <div class="xgrow"><label class="f"><span>Name</span><input id="xg-cname" placeholder="Prototype hoodie"></label><label class="f"><span>Color</span><input id="xg-ccolor" placeholder="Navy"></label><label class="f"><span>Size</span><input id="xg-csize" placeholder="L"></label>
+      <button type="button" class="alink" id="xg-cadd" style="align-self:end">Add</button></div></details>
+    <div class="exlines">${f.items.map((it, i) => `<div class="exl on">${exThumb(it)}<span class="exn">${esc(it.desc || it.style)} <small>${[it.color, it.size, it.style].filter(Boolean).map(esc).join(" · ")}</small></span>
+      <div class="step"><button type="button" data-xgq="${i}" data-d="-1" aria-label="One fewer">−</button><span>${it.qty}</span><button type="button" data-xgq="${i}" data-d="1" aria-label="One more">+</button></div></div>`).join("") || `<p class="hint">No items added yet.</p>`}</div>
+    <label class="f"><span>Note (optional, the ambassador can see it)</span><textarea id="xg-note" rows="2">${esc(f.note)}</textarea></label>
+    ${f.err ? `<div class="note">${esc(f.err)}</div>` : ""}
+    <div class="rbtns"><button type="button" class="primary small" id="xg-save"${f.saving ? " disabled" : ""}>${f.saving ? "Saving…" : f.id ? "Save changes" : "Save extra gear"}</button><button type="button" class="link" id="xg-cancel">Cancel</button></div>
+  </form>`;
+}
+let xgTimer = null;
+function xgSuggest(){
+  clearTimeout(xgTimer); const f = XG.form; if (!f) return; const q = f.q.trim(); if (q.length < 2 || /^\d+$/.test(q)) return;
+  xgTimer = setTimeout(async () => { try { const j = await exApi("suggest", { q }); if (!XG.form || XG.form.q.trim() !== q) return; XG.form.sug = j.items; XG.form.sugQ = q; xgRender(); } catch (e) {} }, 220);
+}
+function xgRender(){ const el = $("xg-q"), pos = el && el.selectionStart, had = document.activeElement === el; renderProfile(); const n = $("xg-q"); if (n && had) { n.focus(); n.setSelectionRange(pos, pos); } }
+async function xgLookup(q){
+  const f = XG.form; f.busy = true; f.hits = null; xgRender();
+  try { let hits = (await exApi("lookup", { q })).items; if (/^\d{11,14}$/.test(q)) hits = hits.filter(h => h.upc === q); f.hits = hits;
+    if (hits.length === 1 && /^\d{11,14}$/.test(q)) { xgAdd(hits[0]); f.hits = null; f.q = ""; } } catch (e) { f.err = e.message; }
+  f.busy = false; xgRender();
+}
+function xgAdd(h){ const f = XG.form, cur = f.items.find(x => x.style === h.style && x.size === h.size); if (cur) cur.qty++; else f.items.push({ style: h.style, desc: h.desc, color: h.colorName || h.color, size: h.size, qty: 1, img: h.img || "" }); }
+function xgRead(){ const f = XG.form; if (!f || !$("xg-date")) return; f.date = $("xg-date").value; f.type = $("xg-type").value; f.by = $("xg-by").value; f.note = $("xg-note").value; }
+function gearSearchItems(){   // extra gear in "Who ordered a product?"
+  if (!Array.isArray(XG.all)) { if (XG.all === null && isStaff()) { XG.all = "loading"; gearApi("list").then(j => { XG.all = j.gear; }).catch(() => { XG.all = []; }).finally(renderProfile); } return []; }
+  return XG.all.flatMap(g => g.items.map(it => ({ s: it.style, d: it.desc, c: it.color, z: it.size, q: it.qty, id: g.ambId, season: `Extra gear (${g.type}) ${fmtDay(g.date)}` })));
+}
+$("profBody").addEventListener("click", async e => {
+  const t = e.target, f = XG.form;
+  const nw = t.closest("[data-xgnew]"); if (nw) { const r = S.me.roster.find(x => x.id === nw.dataset.xgnew);
+    XG.form = { ambId: nw.dataset.xgnew, date: localToday(), type: "Sample", by: store.get("jas:xgby") || "", note: "", items: [], q: "", sug: null, hits: null }; renderProfile(); setTimeout(() => $("xg-q")?.focus(), 30); return; }
+  const ed = t.closest("[data-xgedit]"); if (ed) { const g = Object.values(XG.byAmb).flat().find(x => x && x.id === ed.dataset.xgedit); if (!g) return;
+    XG.form = { id: g.id, ambId: g.ambId, date: g.date, type: g.type, by: g.by || "", note: g.note || "", items: g.items.map(i => ({ ...i })), q: "", sug: null, hits: null }; renderProfile(); return; }
+  const dl = t.closest("[data-xgdel]"); if (dl) { if (!confirm("Delete this extra gear entry?")) return; try { await gearApi("delete", { id: dl.dataset.xgdel });
+      for (const k in XG.byAmb) if (Array.isArray(XG.byAmb[k])) XG.byAmb[k] = XG.byAmb[k].filter(x => x.id !== dl.dataset.xgdel); XG.all = null; toast("Deleted"); } catch (x) { toast(x.message); } renderProfile(); return; }
+  if (!f || !t.closest("#xgForm")) return;
+  xgRead();
+  const st = t.closest("[data-xgstyle]"); if (st) { f.q = st.dataset.xgstyle; xgLookup(st.dataset.xgstyle); return; }
+  const ad = t.closest("[data-xgadd]"); if (ad) { xgAdd(f.hits.find(h => h.skuId === ad.dataset.xgadd)); f.hits = null; f.q = ""; f.sug = null; xgRender(); return; }
+  const qb = t.closest("[data-xgq]"); if (qb) { const it = f.items[+qb.dataset.xgq]; it.qty += Number(qb.dataset.d); if (it.qty <= 0) f.items.splice(+qb.dataset.xgq, 1); renderProfile(); return; }
+  if (t.id === "xg-clearhits") { f.hits = null; renderProfile(); return; }
+  if (t.id === "xg-cadd") { const n = $("xg-cname").value.trim(); if (!n) { $("xg-cname").focus(); return; } f.items.push({ style: "", desc: n, color: $("xg-ccolor").value.trim(), size: $("xg-csize").value.trim(), qty: 1 }); renderProfile(); return; }
+  if (t.id === "xg-cancel") { XG.form = null; renderProfile(); return; }
+  if (t.id === "xg-save") {
+    if (!f.items.length) { f.err = "Add at least one item."; renderProfile(); return; }
+    f.saving = true; f.err = ""; renderProfile(); store.set("jas:xgby", f.by);
+    try { const j = await gearApi("save", { entry: { id: f.id, ambId: f.ambId, date: f.date, type: f.type, by: f.by, note: f.note, items: f.items } });
+      const l = XG.byAmb[f.ambId] = (XG.byAmb[f.ambId] || []).filter(x => x.id !== j.entry.id); l.unshift(j.entry); l.sort((a, b) => String(b.date).localeCompare(String(a.date)));
+      XG.form = null; XG.all = null; toast("Extra gear saved"); }
+    catch (x) { f.err = x.message; f.saving = false; }
+    renderProfile(); return;
+  }
+});
+$("profBody").addEventListener("input", e => {
+  const f = XG.form; if (!f) return;
+  if (e.target.id === "xg-q") { f.q = e.target.value; f.hits = null; xgRead(); xgRender(); xgSuggest(); }
+});
+$("profBody").addEventListener("keydown", e => {
+  const f = XG.form; if (!f || e.target.id !== "xg-q" || e.key !== "Enter") return;
+  e.preventDefault(); xgRead(); const q = e.target.value.trim(); if (!q) return;
+  if (!/^\d{11,14}$/.test(q) && !/^[A-Z0-9]+-[A-Z0-9]+$/i.test(q) && f.sugQ === q && f.sug && f.sug.length) xgLookup(f.sug[0].s); else xgLookup(q);
+});
 /* ===== My Info: address, phone, email, shipping instructions — read from and saved to the AM customer ===== */
 const CT = {};   // who ("me" or ambassador id) -> { data, err, edit, saving, msg }
 const CT_ADDR = [["address_1","Street address",true],["address_2","Apt, suite (optional)",false],["city","City",true],["state","State",true],["postal_code","ZIP",true],["country","Country",false]];
