@@ -1537,8 +1537,10 @@ function ambPanel(){
       ${(r.missing || []).length ? `<p class="miss">Missing in their AM customer account: ${esc(r.missing.join(", "))}</p>` : ""}</div></div>
       <div class="alinks"><button type="button" class="alink" data-copylink="${esc(r.code)}" title="Copy ${esc(r.n)}'s personal store link">Copy their link</button>
         <a class="alink" href="/#${esc(r.code)}-V" target="_blank" rel="noopener">View their store ↗</a>
-        <button type="button" class="alink" data-ambrefresh="${esc(r.id)}">Refresh orders</button></div>
+        <button type="button" class="alink" data-ambrefresh="${esc(r.id)}">Refresh orders</button>
+        <button type="button" class="alink" data-xgnew="${esc(r.id)}">+ Log extra gear</button></div>
       <div class="linkline"><span class="code" id="lk-${esc(r.id)}">${esc(location.origin + "/#" + r.code)}</span></div></div>
+    ${XG.form && XG.form.ambId === r.id ? `<h3 class="psec">${XG.form.id ? "Edit extra gear" : "Log extra gear"}</h3>${gearFormHTML(XG.form)}` : ""}
     <h3 class="psec">Contact info</h3>${contactHTML(r.id)}
     <h3 class="psec">Orders</h3>
     ${!d ? `<p class="hint pload">Loading orders…</p>` : d.error ? `<p class="hint pload">Couldn't load orders. Try again.</p>` : seasonsHTML(d.seasons || [], "a:" + r.id)}
@@ -1583,9 +1585,8 @@ function gearListHTML(list, staff){
 function gearStaffHTML(ambId){
   const list = XG.byAmb[ambId];
   if (list === undefined) { XG.byAmb[ambId] = null; gearApi("list", { as: ambId }).then(j => { XG.byAmb[ambId] = j.gear; }).catch(() => { XG.byAmb[ambId] = []; }).finally(renderProfile); }
-  const f = XG.form && XG.form.ambId === ambId ? XG.form : null;
-  return `<div class="rhead"><h3 class="psec">Extra gear <small>not in AM · not counted against the allowance</small></h3>${f ? "" : `<button type="button" class="alink" data-xgnew="${esc(ambId)}">+ Log extra gear</button>`}</div>
-    ${f ? gearFormHTML(f) : ""}${!Array.isArray(list) ? `<p class="hint">Loading…</p>` : gearListHTML(list, true)}`;
+  return `<div class="rhead"><h3 class="psec">Extra gear <small>not in AM · not counted against the allowance</small></h3></div>
+    ${!Array.isArray(list) ? `<p class="hint">Loading…</p>` : gearListHTML(list, true)}`;
 }
 function gearFormHTML(f){
   const q = f.q.trim();
@@ -1634,7 +1635,8 @@ $("profBody").addEventListener("click", async e => {
   const nw = t.closest("[data-xgnew]"); if (nw) { const r = S.me.roster.find(x => x.id === nw.dataset.xgnew);
     XG.form = { ambId: nw.dataset.xgnew, date: localToday(), type: "Sample", by: store.get("jas:xgby") || "", note: "", items: [], q: "", sug: null, hits: null }; renderProfile(); setTimeout(() => $("xg-q")?.focus(), 30); return; }
   const ed = t.closest("[data-xgedit]"); if (ed) { const g = Object.values(XG.byAmb).flat().find(x => x && x.id === ed.dataset.xgedit); if (!g) return;
-    XG.form = { id: g.id, ambId: g.ambId, date: g.date, type: g.type, by: g.by || "", note: g.note || "", items: g.items.map(i => ({ ...i })), q: "", sug: null, hits: null }; renderProfile(); return; }
+    XG.form = { id: g.id, ambId: g.ambId, date: g.date, type: g.type, by: g.by || "", note: g.note || "", items: g.items.map(i => ({ ...i })), q: "", sug: null, hits: null }; renderProfile();
+    $("xgForm")?.scrollIntoView({ behavior: "smooth", block: "center" }); return; }
   const dl = t.closest("[data-xgdel]"); if (dl) { if (!confirm("Delete this extra gear entry?")) return; try { await gearApi("delete", { id: dl.dataset.xgdel });
       for (const k in XG.byAmb) if (Array.isArray(XG.byAmb[k])) XG.byAmb[k] = XG.byAmb[k].filter(x => x.id !== dl.dataset.xgdel); XG.all = null; toast("Deleted"); } catch (x) { toast(x.message); } renderProfile(); return; }
   if (!f || !t.closest("#xgForm")) return;
